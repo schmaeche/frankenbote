@@ -1,3 +1,3 @@
 # frankenbote
 
-AI generated weekly local newspaper for Franconia region
+AI generated weekly local newspaper for Franconia region in Germany.
