@@ -1,0 +1,34 @@
+[project]
+name = "frankenbote"
+version = "0.1.0"
+description = "Personal weekly news digest for Franconia, Bavaria and Germany"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "Andreas Werner" },
+]
+dependencies = [
+    # Pipeline core
+    "feedparser>=6.0.11",       # RSS/Atom feed parsing
+    "httpx>=0.28.0",            # Modern HTTP client
+    "pyyaml>=6.0.2",            # YAML config files
+    "python-dotenv>=1.0.1",     # Load .env into environment
+    "jinja2>=3.1.4",            # HTML templating
+    "pydantic>=2.9.0",          # Config validation
+    # AI
+    "anthropic>=0.97.0",        # Anthropic API client
+    # Publishing
+    "paramiko>=3.5.0",          # SFTP for upload to webserver
+    # CLI
+    "click>=8.1.7",             # Command-line argument parsing
+]
+
+[project.scripts]
+frankenbote = "frankenbote.cli:main"
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

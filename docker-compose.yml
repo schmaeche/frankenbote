@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: frankenbote:dev
+    env_file:
+      - .env
+    volumes:
+      # Mount source code so edits on the host are seen immediately
+      # in the container (live-reload-style development).
+      - ./src:/app/src:ro
+      # Mount config — read-only; the app should never write here.
+      - ./config:/app/config:ro
+      # Mount data and output — read-write; the app produces these.
+      - ./data:/app/data
+      - ./output:/app/output
+    # No ports exposed — this is a CLI tool, not a web server.
