@@ -1,0 +1,109 @@
+# Frankenbote source list.
+#
+# Each source needs:
+#   id:       short identifier (lowercase, no spaces — used internally)
+#   name:     human-readable display name
+#   url:      the RSS/Atom feed URL (must be HTTPS unless allow_http: true)
+#   category: one of: local, municipal, national, tabloid
+#   enabled:  true/false — toggle without deleting (handy for debugging)
+#
+# Optional:
+#   allow_http: true   — allow plain HTTP (only if no HTTPS option exists)
+#   max_articles: 50   — cap how many articles to keep from this feed
+#
+# After editing this file, no rebuild is needed — just re-run `frankenbote fetch`.
+
+sources:
+  # ----- Local: Nuremberg metropolitan area -----
+  - id: nordbayern_schlagzeilen
+    name: "Nordbayern – Schlagzeilen"
+    url: "https://www.nordbayern.de/feed.rss"
+    category: local
+    enabled: true
+
+  - id: nordbayern_nuernberg
+    name: "Nordbayern – Nürnberg"
+    url: "https://www.nordbayern.de/region/nuernberg/feed.rss"
+    category: local
+    enabled: true
+
+  - id: nordbayern_fuerth
+    name: "Nordbayern – Fürth"
+    url: "https://www.nordbayern.de/region/fuerth/feed.rss"
+    category: local
+    enabled: true
+
+  - id: nordbayern_erlangen
+    name: "Nordbayern – Erlangen"
+    url: "https://www.nordbayern.de/region/erlangen/feed.rss"
+    category: local
+    enabled: true
+
+  - id: nordbayern_franken
+    name: "Nordbayern – Franken"
+    url: "https://www.nordbayern.de/region/franken/feed.rss"
+    category: local
+    enabled: true
+
+  - id: br24_franken
+    name: "BR24 – Franken"
+    url: "https://www.br.de/nachrichten/franken/index.xml"
+    category: local
+    enabled: true
+
+  # ----- Municipal: Stadt Nürnberg -----
+  - id: nuernberg_aktuell
+    name: "Stadt Nürnberg – Aktuelle Nachrichten"
+    url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_aktuelle_nachrichten.xml"
+    category: municipal
+    enabled: true
+
+  - id: nuernberg_autoverkehr
+    name: "Stadt Nürnberg – Autoverkehr"
+    url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_autoverkehr.xml"
+    category: municipal
+    enabled: true
+
+  - id: nuernberg_buergerservice
+    name: "Stadt Nürnberg – Bürgerservice"
+    url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_buergerservice.xml"
+    category: municipal
+    enabled: true
+
+  # ----- National: quality press & broadcasters -----
+  - id: tagesschau
+    name: "Tagesschau"
+    url: "https://www.tagesschau.de/index~rss2.xml"
+    category: national
+    enabled: true
+
+  - id: spiegel
+    name: "Spiegel – Schlagzeilen"
+    url: "https://www.spiegel.de/schlagzeilen/index.rss"
+    category: national
+    enabled: true
+
+  - id: zeit
+    name: "Zeit Online"
+    url: "https://newsfeed.zeit.de/index"
+    category: national
+    enabled: true
+
+  - id: sueddeutsche_politik
+    name: "Süddeutsche – Politik"
+    url: "https://rss.sueddeutsche.de/rss/Politik"
+    category: national
+    enabled: true
+
+  - id: faz
+    name: "FAZ – Aktuell"
+    url: "https://www.faz.net/rss/aktuell/"
+    category: national
+    enabled: true
+
+  # ----- Tabloid -----
+  - id: bild
+    name: "Bild"
+    url: "https://www.bild.de/rssfeeds/vw-alles/vw-alles-26970192,dzbildplus=true,sort=1,teaserbildmobil=false,view=rss2,wtmc=ob.feed.bild.xml"
+    category: tabloid
+    enabled: true
