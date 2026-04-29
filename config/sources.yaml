@@ -15,60 +15,73 @@
 
 sources:
   # ----- Local: Nuremberg metropolitan area -----
+  # Note: Nordbayern offers separate feeds for different regions, RSS URLs end with "?isRss=true"
   - id: nordbayern_schlagzeilen
     name: "Nordbayern – Schlagzeilen"
-    url: "https://www.nordbayern.de/feed.rss"
+    url: "https://www.nordbayern.de?isRss=true"
     category: local
     enabled: true
 
   - id: nordbayern_nuernberg
     name: "Nordbayern – Nürnberg"
-    url: "https://www.nordbayern.de/region/nuernberg/feed.rss"
+    url: "https://www.nordbayern.de/nuernberg?isRss=true"
     category: local
     enabled: true
 
   - id: nordbayern_fuerth
     name: "Nordbayern – Fürth"
-    url: "https://www.nordbayern.de/region/fuerth/feed.rss"
+    url: "https://www.nordbayern.de/fuerth?isRss=true"
     category: local
     enabled: true
 
   - id: nordbayern_erlangen
     name: "Nordbayern – Erlangen"
-    url: "https://www.nordbayern.de/region/erlangen/feed.rss"
+    url: "https://www.nordbayern.de/erlangen?isRss=true"
     category: local
     enabled: true
 
   - id: nordbayern_franken
     name: "Nordbayern – Franken"
-    url: "https://www.nordbayern.de/region/franken/feed.rss"
+    url: "https://www.nordbayern.de/franken?isRss=true"
     category: local
     enabled: true
 
-  - id: br24_franken
-    name: "BR24 – Franken"
-    url: "https://www.br.de/nachrichten/franken/index.xml"
+  - id: br24_mittelfranken
+    name: "BR24 – Mittelfranken"
+    url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlNk5T"
+    category: local
+    enabled: true
+
+  - id: br24_unterfranken
+    name: "BR24 – Unterfranken"
+    url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlMw8z"
+    category: local
+    enabled: true
+
+  - id: br24_oberfranken
+    name: "BR24 – Oberfranken"
+    url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlNKwl"
     category: local
     enabled: true
 
   # ----- Municipal: Stadt Nürnberg -----
   - id: nuernberg_aktuell
     name: "Stadt Nürnberg – Aktuelle Nachrichten"
-    url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_aktuelle_nachrichten.xml"
+    url: "https://go.nuernberg.de/62603295"
     category: municipal
-    enabled: true
+    enabled: false
 
   - id: nuernberg_autoverkehr
     name: "Stadt Nürnberg – Autoverkehr"
     url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_autoverkehr.xml"
     category: municipal
-    enabled: true
+    enabled: false
 
   - id: nuernberg_buergerservice
     name: "Stadt Nürnberg – Bürgerservice"
     url: "https://www.nuernberg.de/internet/newsfeed/stadtportal_buergerservice.xml"
     category: municipal
-    enabled: true
+    enabled: false
 
   # ----- National: quality press & broadcasters -----
   - id: tagesschau
@@ -106,4 +119,4 @@ sources:
     name: "Bild"
     url: "https://www.bild.de/rssfeeds/vw-alles/vw-alles-26970192,dzbildplus=true,sort=1,teaserbildmobil=false,view=rss2,wtmc=ob.feed.bild.xml"
     category: tabloid
-    enabled: true
+    enabled: false
