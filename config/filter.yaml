@@ -1,0 +1,25 @@
+# Frankenbote filter configuration.
+#
+# This stage applies *deterministic* rules only — date window, URL
+# deduplication, and surgical keyword drops. Topic-level judgements
+# ("no celebrity stuff", "prefer economy") happen in the curator step
+# using AI, not here.
+
+filter:
+  # The window default. Can be overridden per run via CLI flags.
+  # Anchor: "previous_saturday" means: if today is Saturday, the window
+  # covers the prior 7 days (last Saturday 00:00 → last Friday 23:59).
+  # On any other day, "previous_saturday" anchors to the most recent
+  # Saturday in the past.
+  window:
+    anchor: rolling_7d   # one of: previous_saturday, rolling_7d
+    timezone: Europe/Berlin
+
+  # Articles whose title contains any of these substrings (case-insensitive)
+  # are dropped. Use sparingly — for surgical removals only.
+  # Topic-level taste belongs in sections.yaml (next step).
+  drop_if_title_contains:
+    - "Greuther Fürth"
+    - "SpVgg Fürth"
+    - "SpVgg Greuther"
+    - "SpVgg Greuther Fürth"
