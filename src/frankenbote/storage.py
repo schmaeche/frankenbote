@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from frankenbote.models import Article, CuratedArticle
+from frankenbote.models import Article, CuratedArticle, Edition
 
 
 EDITIONS_DIR = Path("data/editions")
@@ -87,3 +87,30 @@ def load_curated_raw(edition_date: datetime) -> list[CuratedArticle]:
         raise FileNotFoundError(f"No curated-raw file at {path}")
     raw = json.loads(path.read_text(encoding="utf-8"))
     return [CuratedArticle(**i) for i in raw["items"]]
+
+
+# ---------------- Edition (final) ----------------
+
+
+def edition_path(edition_date: datetime) -> Path:
+    """Path to the final edition JSON for a given edition date."""
+    return EDITIONS_DIR / f"{edition_date.date().isoformat()}.json"
+
+
+def save_edition(edition: Edition, edition_date: datetime) -> Path:
+    """Save the final selected edition to disk."""
+    EDITIONS_DIR.mkdir(parents=True, exist_ok=True)
+    path = edition_path(edition_date)
+    path.write_text(
+        edition.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_edition(edition_date: datetime) -> Edition:
+    """Load a previously saved edition."""
+    path = edition_path(edition_date)
+    if not path.exists():
+        raise FileNotFoundError(f"No edition file at {path}")
+    return Edition.model_validate_json(path.read_text(encoding="utf-8"))

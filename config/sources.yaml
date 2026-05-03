@@ -105,7 +105,7 @@ sources:
   - id: sueddeutsche_bayern
     name: "Süddeutsche – Bayern"
     url: "https://rss.sueddeutsche.de/rss/Bayern"
-    category: regional
+    category: national
     enabled: true
 
   - id: faz

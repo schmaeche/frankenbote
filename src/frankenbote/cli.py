@@ -12,7 +12,14 @@ import click
 from frankenbote.config import load_sources
 from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
-from frankenbote.storage import save_candidates, load_candidates, save_curated_raw
+from frankenbote.selector import select, SelectorOptions
+from frankenbote.storage import ( 
+    save_candidates,
+    load_candidates,
+    save_curated_raw,
+    load_curated_raw,
+    save_edition
+)
 from frankenbote.curator import load_curator_config, curate
 
 
@@ -84,11 +91,36 @@ def fetch(config: Path) -> None:
     default="config/filter.yaml",
     show_default=True,
 )
-def pipeline(sources_path: Path, filter_path: Path) -> None:
-    """Fetch + filter, save candidates JSON. Foundation for upcoming AI steps."""
+@click.option(
+    "--sections-config",
+    "sections_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sections.yaml",
+    show_default=True,
+)
+@click.option(
+    "--size",
+    type=click.IntRange(min=5, max=100),
+    default=25,
+    show_default=True,
+)
+@click.option(
+    "--no-curate",
+    is_flag=True,
+    help="Stop after the filter step (don't call the LLM). Useful for dev.",
+)
+def pipeline(
+    sources_path: Path,
+    filter_path: Path,
+    sections_path: Path,
+    size: int,
+    no_curate: bool,
+) -> None:
+    """Run the full pipeline: fetch → filter → curate → select."""
     try:
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
+        curator_cfg = load_curator_config(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load config: {e}", err=True)
         sys.exit(1)
@@ -107,20 +139,49 @@ def pipeline(sources_path: Path, filter_path: Path) -> None:
     result = filter_articles(all_articles, filter_cfg, now=now)
     s = result.stats
     click.echo("\nFilter:")
-    click.echo(f"  Window:           {result.window_start.isoformat()}  →  {result.window_end.isoformat()}")
-    click.echo(f"  Input:            {s.input_count}")
-    click.echo(f"    no date (used fetched_at): {s.dropped_no_date_kept}")
-    click.echo(f"    outside window:            {s.dropped_outside_window}")
-    click.echo(f"    blocked title:             {s.dropped_blocked_title}")
-    click.echo(f"    duplicates:                {s.dropped_duplicates}")
-    click.echo(f"  Output:           {s.output_count} candidates")
+    click.echo(f"  Window:  {result.window_start.isoformat()}  →  {result.window_end.isoformat()}")
+    click.echo(f"  Kept:    {s.output_count} / {s.input_count}")
 
-    # 3. Save
-    edition_date = result.window_end  # Saturday's edition covers up through Friday
-    out_path = save_candidates(
-        result.articles, edition_date, result.window_start, result.window_end
+    edition_date = result.window_end
+    save_candidates(result.articles, edition_date, result.window_start, result.window_end)
+
+    if no_curate:
+        click.echo("\nStopped before curation (--no-curate).")
+        return
+
+    # 3. Curate
+    click.echo(f"\nCurating {s.output_count} article(s) using {curator_cfg.model}…")
+    try:
+        curated = curate(result.articles, curator_cfg)
+    except RuntimeError as e:
+        click.echo(f"❌ Curator failed: {e}", err=True)
+        sys.exit(1)
+    save_curated_raw(curated, edition_date)
+
+    # 4. Select
+    edition = select(
+        curated=curated,
+        config=curator_cfg,
+        source_ids_in_order=[s.id for s in sources],
+        options=SelectorOptions(edition_size=size),
+        edition_date=edition_date,
+        window_start=result.window_start,
+        window_end=result.window_end,
     )
+    es = edition.stats
+    click.echo(f"\nFinal edition: {es.selected} articles")
+    click.echo("By priority:")
+    for p in ("P1", "P2", "P3", "P4"):
+        count = es.by_priority.get(p, 0)
+        pct = (count / es.selected * 100) if es.selected else 0.0
+        click.echo(f"  {p}: {count:3d}  ({pct:.0f}%)")
+    click.echo("By section:")
+    for sec in edition.sections:
+        click.echo(f"  {sec.display_name}: {len(sec.articles)}")
+
+    out_path = save_edition(edition, edition_date)
     click.echo(f"\n  → Saved to {out_path}")
+
 
 @main.command(name="curate")
 @click.option(
@@ -179,6 +240,75 @@ def curate_cmd(candidates_date, sections_path: Path) -> None:
 
     out_path = save_curated_raw(curated, candidates_date)
     click.echo(f"\n  → Saved to {out_path}")
+
+
+@main.command(name="select")
+@click.option(
+    "--curated-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="Edition date (YYYY-MM-DD) of the curated-raw JSON.",
+)
+@click.option(
+    "--sections-config",
+    "sections_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sections.yaml",
+    show_default=True,
+)
+@click.option(
+    "--sources-config",
+    "sources_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sources.yaml",
+    show_default=True,
+)
+@click.option(
+    "--size",
+    type=click.IntRange(min=5, max=100),
+    default=25,
+    show_default=True,
+    help="Target number of articles in the final edition.",
+)
+def select_cmd(curated_date, sections_path: Path, sources_path: Path, size: int) -> None:
+    """Run the selector on a previously-saved curated-raw JSON file."""
+    try:
+        config = load_curator_config(sections_path)
+        source_ids = [s.id for s in load_sources(sources_path)]
+    except ValueError as e:
+        click.echo(f"❌ Failed to load config: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        curated = load_curated_raw(curated_date)
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        click.echo("    Run `frankenbote curate ...` first.", err=True)
+        sys.exit(1)
+
+    edition = select(
+        curated=curated,
+        config=config,
+        source_ids_in_order=source_ids,
+        options=SelectorOptions(edition_size=size),
+        edition_date=curated_date,
+    )
+
+    s = edition.stats
+    click.echo(f"Selection from {s.candidates_in} candidates ({s.curated_kept} eligible after curation):")
+    click.echo(f"  → {s.selected} articles in final edition\n")
+    click.echo("By priority (target: P1=50% P2=25% P3=15% P4=10%):")
+    for p in ("P1", "P2", "P3", "P4"):
+        count = s.by_priority.get(p, 0)
+        pct = (count / s.selected * 100) if s.selected else 0.0
+        click.echo(f"  {p}: {count:3d}  ({pct:.0f}%)")
+    click.echo("\nBy section:")
+    for sec in edition.sections:
+        click.echo(f"  {sec.display_name}: {len(sec.articles)}")
+
+    out_path = save_edition(edition, curated_date)
+    click.echo(f"\n  → Saved to {out_path}")
+
 
 if __name__ == "__main__":
     main()

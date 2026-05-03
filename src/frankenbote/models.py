@@ -90,3 +90,34 @@ class CuratorResponse(BaseModel):
     """Top-level shape the LLM must return: a list of decisions."""
 
     decisions: list[CuratorDecision]
+
+
+# ---------------- Edition models ----------------
+
+class EditionSection(BaseModel):
+    """A section in the final edition: ID, display name, ordered articles."""
+
+    id: str
+    display_name: str
+    articles: list[CuratedArticle]
+
+
+class EditionStats(BaseModel):
+    """Statistics about how the edition came together."""
+
+    candidates_in: int
+    curated_kept: int
+    curated_dropped: int
+    selected: int
+    by_priority: dict[str, int]   # e.g., {"P1": 12, "P2": 6, ...}
+    by_section: dict[str, int]    # e.g., {"politik_verwaltung": 5, ...}
+
+
+class Edition(BaseModel):
+    """The final edition, ready for rendering."""
+
+    edition_date: str             # ISO date string
+    window_start: datetime
+    window_end: datetime
+    sections: list[EditionSection]
+    stats: EditionStats
