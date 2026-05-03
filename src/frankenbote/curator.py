@@ -23,6 +23,7 @@ import re
 from pathlib import Path
 
 import anthropic
+import click
 import yaml
 from pydantic import BaseModel, ValidationError
 
@@ -170,17 +171,36 @@ def _call_llm(
     user_prompt: str,
     max_output_tokens: int,
 ) -> tuple[str, str]:
-    """Make the actual API call.
+    """Make the actual API call using streaming.
 
-    Returns (text_content, stop_reason). stop_reason == 'max_tokens'
-    means the response was truncated by our cap.
+    Streaming is used for two reasons:
+      1. The SDK requires it when max_tokens is high enough that a
+         non-streaming response could exceed 10 minutes (~21k tokens
+         for Sonnet 4.6).
+      2. It future-proofs us against larger candidate batches.
+
+    The function still returns the full text in one go — chunks are
+    concatenated by the SDK's stream helper. Callers do not need to
+    know streaming was used.
+
+    Returns (text_content, stop_reason).
     """
-    msg = client.messages.create(
+    with client.messages.stream(
         model=model,
         max_tokens=max_output_tokens,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
-    )
+    ) as stream:
+        # Drain the stream, printing a dot every ~50 tokens so the user
+        # can see something is happening. This is purely cosmetic.
+        token_count = 0
+        for _chunk in stream.text_stream:
+            token_count += 1
+            if token_count % 50 == 0:
+                click.echo(".", nl=False)
+        click.echo()  # newline after the dots
+        msg = stream.get_final_message()
+
     parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
     return "".join(parts), (msg.stop_reason or "unknown")
 
