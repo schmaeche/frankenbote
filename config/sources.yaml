@@ -100,17 +100,17 @@ sources:
     name: "Zeit Online"
     url: "https://newsfeed.zeit.de/index"
     category: national
-    enabled: true
+    enabled: false
 
-  - id: sueddeutsche_politik
-    name: "Süddeutsche – Politik"
-    url: "https://rss.sueddeutsche.de/rss/Politik"
-    category: national
+  - id: sueddeutsche_bayern
+    name: "Süddeutsche – Bayern"
+    url: "https://rss.sueddeutsche.de/rss/Bayern"
+    category: regional
     enabled: true
 
   - id: faz
-    name: "FAZ – Aktuell"
-    url: "https://www.faz.net/rss/aktuell/"
+    name: "FAZ – Wirtschaft"
+    url: "https://www.faz.net/rss/aktuell/wirtschaft/"
     category: national
     enabled: true
 
