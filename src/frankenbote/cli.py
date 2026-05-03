@@ -11,8 +11,9 @@ import click
 
 from frankenbote.config import load_sources
 from frankenbote.fetcher import fetch_all
-from frankenbote.filter import compute_window, filter_articles, load_filter_config
-from frankenbote.storage import save_candidates
+from frankenbote.filter import filter_articles, load_filter_config
+from frankenbote.storage import save_candidates, load_candidates, save_curated_raw
+from frankenbote.curator import load_curator_config, curate
 
 
 @click.group()
@@ -121,6 +122,63 @@ def pipeline(sources_path: Path, filter_path: Path) -> None:
     )
     click.echo(f"\n  → Saved to {out_path}")
 
+@main.command(name="curate")
+@click.option(
+    "--candidates-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="Edition date (YYYY-MM-DD) of the candidates JSON to curate.",
+)
+@click.option(
+    "--sections-config",
+    "sections_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sections.yaml",
+    show_default=True,
+)
+def curate_cmd(candidates_date, sections_path: Path) -> None:
+    """Run the AI curator on a previously-saved candidates JSON file."""
+    try:
+        config = load_curator_config(sections_path)
+    except ValueError as e:
+        click.echo(f"❌ Failed to load sections config: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        candidates = load_candidates(candidates_date)
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        click.echo("    Run `frankenbote pipeline` first to generate candidates.", err=True)
+        sys.exit(1)
+
+    click.echo(f"Curating {len(candidates)} article(s) using {config.model}…")
+    click.echo("(One API call. This may take 30–90 seconds.)\n")
+
+    try:
+        curated = curate(candidates, config)
+    except RuntimeError as e:
+        click.echo(f"❌ Curator failed: {e}", err=True)
+        sys.exit(1)
+
+    # Stats
+    kept = [c for c in curated if c.section is not None]
+    dropped = len(curated) - len(kept)
+    by_priority: dict[str, int] = {}
+    by_section: dict[str, int] = {}
+    for c in kept:
+        by_priority[c.priority.value] = by_priority.get(c.priority.value, 0) + 1
+        by_section[c.section or "?"] = by_section.get(c.section or "?", 0) + 1
+
+    click.echo(f"Result: {len(kept)} kept, {dropped} dropped\n")
+    click.echo("By priority:")
+    for p in ("P1", "P2", "P3", "P4"):
+        click.echo(f"  {p}: {by_priority.get(p, 0)}")
+    click.echo("\nBy section:")
+    for sec_id in sorted(by_section):
+        click.echo(f"  {sec_id}: {by_section[sec_id]}")
+
+    out_path = save_curated_raw(curated, candidates_date)
+    click.echo(f"\n  → Saved to {out_path}")
 
 if __name__ == "__main__":
     main()

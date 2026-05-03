@@ -46,3 +46,47 @@ class Article(BaseModel):
     summary: str = ""  # short description from the feed (may be empty)
     published: datetime | None = None  # not all feeds reliably include this
     fetched_at: datetime
+
+
+# ---------------- Curator models ----------------
+
+class Priority(str, Enum):
+    """Geographic relevance tier."""
+
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class CuratedArticle(BaseModel):
+    """An Article enriched with the curator's per-article decisions.
+
+    section is None when the curator decided to drop the article.
+    """
+
+    article: Article
+    section: str | None  # one of the section IDs from sections.yaml, or None
+    priority: Priority
+    relevance_score: float = Field(..., ge=0.0, le=10.0)
+    rationale: str = Field(..., max_length=300)
+
+
+class CuratorDecision(BaseModel):
+    """Strict shape of a single decision in the LLM's JSON response.
+
+    The LLM gets the schema in the prompt and is told to match it exactly.
+    article_index ties the decision back to the input list.
+    """
+
+    article_index: int = Field(..., ge=0)
+    section: str | None
+    priority: Priority
+    relevance_score: float = Field(..., ge=0.0, le=10.0)
+    rationale: str = Field(..., max_length=300)
+
+
+class CuratorResponse(BaseModel):
+    """Top-level shape the LLM must return: a list of decisions."""
+
+    decisions: list[CuratorDecision]

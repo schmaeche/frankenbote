@@ -120,3 +120,10 @@ sources:
     url: "https://www.bild.de/rssfeeds/vw-alles/vw-alles-26970192,dzbildplus=true,sort=1,teaserbildmobil=false,view=rss2,wtmc=ob.feed.bild.xml"
     category: tabloid
     enabled: false
+
+  # ----- Sports -----
+  - id: radsportnews
+    name: "RadsportNews"
+    url: "https://www.radsport-news.com/rss.xml"
+    category: national
+    enabled: true

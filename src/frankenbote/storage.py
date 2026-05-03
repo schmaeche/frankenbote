@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from frankenbote.models import Article
+from frankenbote.models import Article, CuratedArticle
 
 
 EDITIONS_DIR = Path("data/editions")
@@ -51,3 +51,39 @@ def load_candidates(edition_date: datetime) -> list[Article]:
         raise FileNotFoundError(f"No candidates file at {path}")
     raw = json.loads(path.read_text(encoding="utf-8"))
     return [Article(**a) for a in raw["articles"]]
+
+
+# ---------------- Curated (raw) ----------------
+
+def curated_raw_path(edition_date: datetime) -> Path:
+    """Path to the raw curator-output JSON for a given edition date."""
+    return EDITIONS_DIR / f"{edition_date.date().isoformat()}-curated-raw.json"
+
+
+def save_curated_raw(
+    curated: list[CuratedArticle],
+    edition_date: datetime,
+) -> Path:
+    """Save curator output (per-article decisions) before selection runs."""
+    EDITIONS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "edition_date": edition_date.date().isoformat(),
+        "article_count": len(curated),
+        "kept_count": sum(1 for c in curated if c.section is not None),
+        "items": [c.model_dump(mode="json") for c in curated],
+    }
+    path = curated_raw_path(edition_date)
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_curated_raw(edition_date: datetime) -> list[CuratedArticle]:
+    """Load previously saved raw curator output."""
+    path = curated_raw_path(edition_date)
+    if not path.exists():
+        raise FileNotFoundError(f"No curated-raw file at {path}")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return [CuratedArticle(**i) for i in raw["items"]]

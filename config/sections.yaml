@@ -1,0 +1,95 @@
+# Frankenbote section configuration.
+#
+# - sections:    The list of allowed section names. The curator must assign
+#                each article to exactly one of these (or to null = "drop").
+# - priorities:  Geographic relevance tiers. The curator labels each article
+#                with one of these IDs.
+# - guidance:    Free-form editorial direction. Goes verbatim into the LLM
+#                prompt. Tweak this until the curator behaves the way you want.
+# - model:       The Anthropic model used for curation. Pinned for stability.
+
+curator:
+  # Model used for the curation call. Pinned so behavior is reproducible.
+  model: claude-sonnet-4-6
+
+  # Geographic priority tiers. The order matters — first = highest priority.
+  priorities:
+    - id: P1
+      label: "Nürnberg"
+      description: |
+        Articles primarily about the city of Nuremberg: its government,
+        neighborhoods (Eibach, Gostenhof, St. Johannis, Langwasser, etc.), local
+        businesses, residents, infrastructure, schools, events, crime,
+        weather. 1. FCN counts as P1.
+    - id: P2
+      label: "Franken"
+      description: |
+        Articles primarily about Mittelfranken, Oberfranken, or
+        Unterfranken (or Franconia as a whole): cities like Fürth,
+        Erlangen, Bamberg, Würzburg, Bayreuth, Hof, Ansbach, Aschaffenburg,
+        Schweinfurt. Regional government, regional events.
+    - id: P3
+      label: "Bayern"
+      description: |
+        Articles primarily about Bavaria as a state, or about Bavarian
+        cities outside Franconia (München, Augsburg, Regensburg,
+        Ingolstadt). State politics, Landtag, Bavarian-wide topics.
+    - id: P4
+      label: "Überregional"
+      description: |
+        Everything else: national German news, EU news, world news.
+
+  # Topical sections. Each article is assigned to exactly one of these,
+  # or to null if the curator judges it doesn't fit anywhere or isn't
+  # interesting enough to include. Display name is what the renderer
+  # shows; canonical name is what the curator uses internally.
+  sections:
+    - id: politik_verwaltung
+      display_name: "Politik"
+      description: |
+        Government decisions, parties, elections, parliaments, civic
+        processes, public administration, policy debates.
+    - id: wirtschaft
+      display_name: "Wirtschaft"
+      description: |
+        Companies, employment, industry, markets, economy, trade,
+        labor relations.
+    - id: verkehr_stadtentwicklung
+      display_name: "Verkehr & Stadtentwicklung"
+      description: |
+        Construction projects, public transport (VAG, U-Bahn, Bus),
+        traffic, road closures, urban planning, housing, infrastructure.
+    - id: kultur_gesellschaft
+      display_name: "Kultur & Gesellschaft"
+      description: |
+        Arts (theater, music, literature, film, museums), social topics,
+        education, religion, science as it touches society.
+    - id: sport
+      display_name: "Sport"
+      description: |
+        All sports content: football (1. FCN, FC Bayern, etc.), icehockey 
+        (Icetigers), cycling, other team sports, individual sports, local clubs.
+    - id: vermischtes
+      display_name: "Vermischtes"
+      description: |
+        Catch-all for newsworthy items that don't fit the other sections:
+        unusual incidents, weather, oddities, small police reports.
+        Use sparingly — when an article doesn't fit anywhere else.
+
+  # Editorial guidance — appended verbatim to the LLM prompt. This is
+  # where you tell the curator your taste. Iterate on this as you see
+  # what the AI actually does.
+  guidance: |
+    - Drop articles that are clearly Promi/Boulevard/celebrity gossip,
+      unless they have local relevance (a Nürnberger making national news
+      is fine; international celebrity divorces are not).
+    - Drop pure paywall teasers, "Plus"/"Premium" lock-out pages, and
+      empty SEO bait.
+    - Drop sponsored/advertorial content even if it leaked into a feed.
+    - Prefer substantive reporting over hot-take opinion pieces.
+    - Wirtschaft is welcome, including dry economic news.
+    - For the relevance_score (0-10): score within the article's priority
+      tier. A "10 P4" means it's the most important national/world story
+      of the week; a "10 P1" means a major Nuremberg story.
+    - Brief one-sentence rationale per article — Andreas will skim these
+      to calibrate the system.
