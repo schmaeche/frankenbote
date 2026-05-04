@@ -67,7 +67,7 @@ main {
   align-items: center;
   gap: var(--space-md);
   padding-bottom: var(--space-md);
-  border-bottom: 2px solid var(--color-text);
+  border-bottom: 4px solid var(--color-accent);
   margin-bottom: var(--space-lg);
 }
 
@@ -223,7 +223,7 @@ main {
 .colophon {
   margin-top: var(--space-xl);
   padding-top: var(--space-lg);
-  border-top: 2px solid var(--color-text);
+  border-top: 4px solid var(--color-accent);
   font-size: 0.8rem;
   color: var(--color-text-muted);
   text-align: center;
