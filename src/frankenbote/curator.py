@@ -196,7 +196,7 @@ def _call_llm(
         token_count = 0
         for _chunk in stream.text_stream:
             token_count += 1
-            if token_count % 50 == 0:
+            if token_count % 25 == 0:
                 click.echo(".", nl=False)
         click.echo()  # newline after the dots
         msg = stream.get_final_message()

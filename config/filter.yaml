@@ -18,8 +18,8 @@ filter:
   # Articles whose title contains any of these substrings (case-insensitive)
   # are dropped. Use sparingly — for surgical removals only.
   # Topic-level taste belongs in sections.yaml (next step).
-  drop_if_title_contains:
-    - "Greuther Fürth"
-    - "SpVgg Fürth"
-    - "SpVgg Greuther"
-    - "SpVgg Greuther Fürth"
+  drop_if_title_contains: []
+    # - "Greuther Fürth"
+    # - "SpVgg Fürth"
+    # - "SpVgg Greuther"
+    # - "SpVgg Greuther Fürth"

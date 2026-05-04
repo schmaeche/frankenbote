@@ -16,15 +16,15 @@
 sources:
   # ----- Local: Nuremberg metropolitan area -----
   # Note: Nordbayern offers separate feeds for different regions, RSS URLs end with "?isRss=true"
-  - id: nordbayern_schlagzeilen
-    name: "Nordbayern – Schlagzeilen"
-    url: "https://www.nordbayern.de?isRss=true"
-    category: local
-    enabled: true
-
   - id: nordbayern_nuernberg
     name: "Nordbayern – Nürnberg"
     url: "https://www.nordbayern.de/nuernberg?isRss=true"
+    category: local
+    enabled: true
+
+  - id: br24_mittelfranken
+    name: "BR24 – Mittelfranken"
+    url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlNk5T"
     category: local
     enabled: true
 
@@ -39,19 +39,7 @@ sources:
     url: "https://www.nordbayern.de/erlangen?isRss=true"
     category: local
     enabled: true
-
-  - id: nordbayern_franken
-    name: "Nordbayern – Franken"
-    url: "https://www.nordbayern.de/franken?isRss=true"
-    category: local
-    enabled: true
-
-  - id: br24_mittelfranken
-    name: "BR24 – Mittelfranken"
-    url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlNk5T"
-    category: local
-    enabled: true
-
+  
   - id: br24_unterfranken
     name: "BR24 – Unterfranken"
     url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlMw8z"
@@ -61,6 +49,18 @@ sources:
   - id: br24_oberfranken
     name: "BR24 – Oberfranken"
     url: "https://nachrichtenfeeds.br.de/rdf/boards/UZlNKwl"
+    category: local
+    enabled: true
+
+  - id: nordbayern_franken
+    name: "Nordbayern – Franken"
+    url: "https://www.nordbayern.de/franken?isRss=true"
+    category: local
+    enabled: true
+
+  - id: nordbayern_schlagzeilen
+    name: "Nordbayern – Schlagzeilen"
+    url: "https://www.nordbayern.de?isRss=true"
     category: local
     enabled: true
 

@@ -87,6 +87,10 @@ curator:
       empty SEO bait.
     - Drop sponsored/advertorial content even if it leaked into a feed.
     - Prefer substantive reporting over hot-take opinion pieces.
+    - Prefer enduring analysis and reporting over live tickers, in-progress
+      coverage, breaking-news updates, and announcements (e.g. starting
+      eleven, traffic alerts that resolve same-day) that lose value within
+      hours of publication.
     - Wirtschaft is welcome, including dry economic news.
     - For the relevance_score (0-10): score within the article's priority
       tier. A "10 P4" means it's the most important national/world story
