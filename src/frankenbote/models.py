@@ -70,6 +70,8 @@ class CuratedArticle(BaseModel):
     priority: Priority
     relevance_score: float = Field(..., ge=0.0, le=10.0)
     rationale: str = Field(..., max_length=300)
+    is_lead: bool = False
+    ai_summary: str | None = None
 
 
 class CuratorDecision(BaseModel):

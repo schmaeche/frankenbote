@@ -160,6 +160,10 @@ def select(
         articles = sorted(by_section[sid], key=section_sort_key)
         if not articles:
             continue  # skip empty sections in the output
+        # Mark the first article in each section as the lead so the
+        # summarizer can write a slightly longer summary for it, and
+        # the renderer can style it as the section's lead story.
+        articles[0] = articles[0].model_copy(update={"is_lead": True})
         sections_out.append(EditionSection(
             id=sid,
             display_name=section_displays[sid],
