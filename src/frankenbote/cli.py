@@ -21,6 +21,7 @@ from frankenbote.storage import (
     save_edition
 )
 from frankenbote.curator import load_curator_config, curate
+from frankenbote.renderer import render_all
 
 
 @click.group()
@@ -182,6 +183,10 @@ def pipeline(
     out_path = save_edition(edition, edition_date)
     click.echo(f"\n  → Saved to {out_path}")
 
+    # 5. Render
+    stats = render_all()
+    click.echo(f"\nRendered {stats['editions_rendered']} edition(s) to output/.")
+
 
 @main.command(name="curate")
 @click.option(
@@ -308,6 +313,17 @@ def select_cmd(curated_date, sections_path: Path, sources_path: Path, size: int)
 
     out_path = save_edition(edition, curated_date)
     click.echo(f"\n  → Saved to {out_path}")
+
+
+@main.command(name="render")
+def render_cmd() -> None:
+    """Render all kept editions to HTML in output/."""
+    stats = render_all()
+    click.echo(f"Rendered {stats['editions_rendered']} edition(s).")
+    if stats["editions_pruned"]:
+        click.echo(f"Pruned {stats['editions_pruned']} old HTML file(s).")
+    click.echo(f"Copied {stats['assets_copied']} asset file(s).")
+    click.echo(f"\nOpen output/index.html in a browser to view.")
 
 
 if __name__ == "__main__":

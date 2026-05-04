@@ -12,6 +12,9 @@ services:
       - ./src:/app/src:ro
       # Mount config — read-only; the app should never write here.
       - ./config:/app/config:ro
+      # Mount templates and assets — read-only; the app should never write here. 
+      - ./templates:/app/templates:ro  
+      - ./assets:/app/assets:ro   
       # Mount data and output — read-write; the app produces these.
       - ./data:/app/data
       - ./output:/app/output
