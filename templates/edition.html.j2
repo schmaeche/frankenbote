@@ -43,7 +43,9 @@
                 </a>
             </h3>
 
-            {% if item.article.summary %}
+            {% if item.ai_summary %}
+            <p class="article__summary">{{ item.ai_summary }}</p>
+            {% elif item.article.summary %}
             <p class="article__summary">{{ item.article.summary | safe }}</p>
             {% endif %}
 

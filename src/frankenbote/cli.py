@@ -14,6 +14,7 @@ from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
 from frankenbote.selector import select, SelectorOptions
 from frankenbote.storage import ( 
+    load_edition,
     save_candidates,
     load_candidates,
     save_curated_raw,
@@ -22,6 +23,7 @@ from frankenbote.storage import (
 )
 from frankenbote.curator import load_curator_config, curate
 from frankenbote.renderer import render_all
+from frankenbote.summarizer import summarize_edition
 
 
 @click.group()
@@ -117,7 +119,7 @@ def pipeline(
     size: int,
     no_curate: bool,
 ) -> None:
-    """Run the full pipeline: fetch → filter → curate → select."""
+    """Run the full pipeline: fetch → filter → curate → select → summarize → render."""
     try:
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
@@ -183,7 +185,20 @@ def pipeline(
     out_path = save_edition(edition, edition_date)
     click.echo(f"\n  → Saved to {out_path}")
 
-    # 5. Render
+    # 5. Summarize
+    try:
+        edition = summarize_edition(edition, model=curator_cfg.model)
+    except RuntimeError as e:
+        click.echo(f"❌ Summarizer failed: {e}", err=True)
+        sys.exit(1)
+    save_edition(edition, edition_date)
+    with_summary = sum(
+        1 for s in edition.sections for a in s.articles if a.ai_summary
+    )
+    total = sum(len(s.articles) for s in edition.sections)
+    click.echo(f"  → {with_summary}/{total} summaries written")
+
+    # 6. Render
     stats = render_all()
     click.echo(f"\nRendered {stats['editions_rendered']} edition(s) to output/.")
 
@@ -326,5 +341,52 @@ def render_cmd() -> None:
     click.echo(f"\nOpen output/index.html in a browser to view.")
 
 
+@main.command(name="summarize")
+@click.option(
+    "--edition-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="Edition date (YYYY-MM-DD) of the edition JSON to summarize.",
+)
+@click.option(
+    "--sections-config",
+    "sections_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sections.yaml",
+    show_default=True,
+)
+def summarize_cmd(edition_date, sections_path: Path) -> None:
+    """Run the AI summarizer on a previously-saved edition JSON file."""
+    try:
+        config = load_curator_config(sections_path)
+    except ValueError as e:
+        click.echo(f"❌ Failed to load sections config: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        edition = load_edition(edition_date)
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        click.echo("    Run `frankenbote pipeline` first.", err=True)
+        sys.exit(1)
+
+    try:
+        edition = summarize_edition(edition, model=config.model)
+    except RuntimeError as e:
+        click.echo(f"❌ Summarizer failed: {e}", err=True)
+        sys.exit(1)
+
+    # Stats
+    total = sum(len(s.articles) for s in edition.sections)
+    with_summary = sum(
+        1 for s in edition.sections for a in s.articles if a.ai_summary
+    )
+    click.echo(f"\nSummarized: {with_summary}/{total} articles "
+               f"({total - with_summary} returned null)")
+
+    out_path = save_edition(edition, edition_date)
+    click.echo(f"  → Updated {out_path}")
+
+    
 if __name__ == "__main__":
     main()
