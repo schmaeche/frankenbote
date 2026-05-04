@@ -46,7 +46,7 @@
             {% endif %}
 
             <div class="article__meta">
-                <span class="article__priority">{{ item.priority.value }}</span>
+                <span class="article__priority">{{ priority_labels.get(item.priority.value, item.priority.value) }}</span>
                 <span class="article__source">{{ item.article.source_name }}</span>
                 {% if item.article.published %}
                 <span class="article__date">

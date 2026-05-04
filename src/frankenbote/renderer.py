@@ -45,6 +45,7 @@ class RenderConfig:
     assets_dir: Path = DEFAULT_ASSETS_DIR
     output_dir: Path = DEFAULT_OUTPUT_DIR
     retention: int = DEFAULT_RETENTION
+    sections_config: Path = Path("config/sections.yaml")
 
 
 # ---------- Public API ----------
@@ -64,10 +65,11 @@ def render_all(config: RenderConfig | None = None) -> dict[str, int]:
     output_assets_dir.mkdir(parents=True, exist_ok=True)
 
     env = _make_jinja_env(config.templates_dir)
+    priority_labels = _load_priority_labels(config.sections_config)
 
     # Render every kept edition.
     for edition in editions:
-        html = _render_edition(env, edition)
+        html = _render_edition(env, edition, priority_labels)
         out_path = output_editions_dir / f"{edition.edition_date}.html"
         out_path.write_text(html, encoding="utf-8")
 
@@ -124,9 +126,17 @@ def _list_recent_editions(retention: int) -> list[Edition]:
     return editions
 
 
-def _render_edition(env: Environment, edition: Edition) -> str:
+def _render_edition(
+    env: Environment,
+    edition: Edition,
+    priority_labels: dict[str, str],
+) -> str:
     template = env.get_template("edition.html.j2")
-    return template.render(edition=edition, generated_at=datetime.now())
+    return template.render(
+        edition=edition,
+        priority_labels=priority_labels,
+        generated_at=datetime.now(),
+    )
 
 
 def _render_index(env: Environment, entries: list[dict]) -> str:
@@ -165,3 +175,17 @@ def _copy_assets(src_dir: Path, dst_dir: Path) -> int:
             shutil.copy2(src, dst_dir / src.name)
             copied += 1
     return copied
+
+
+def _load_priority_labels(sections_config: Path) -> dict[str, str]:
+    """Build a {priority_id: label} lookup from sections.yaml.
+
+    Returns an empty dict if the config can't be loaded — the template
+    falls back to the raw 'P1' / 'P2' values in that case.
+    """
+    try:
+        from frankenbote.curator import load_curator_config
+        config = load_curator_config(sections_config)
+        return {p.id: p.label for p in config.priorities}
+    except Exception:
+        return {}

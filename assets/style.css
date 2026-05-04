@@ -80,10 +80,10 @@ main {
 
 .masthead__title {
   font-family: var(--font-display);
-  font-size: 2.25rem;
-  line-height: 1.05;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 3rem;
+  line-height: 1.0;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .masthead__subtitle {
@@ -102,7 +102,7 @@ main {
    ============================================================ */
 
 .section {
-  margin-top: var(--space-xl);
+  margin-top: 4rem;
 }
 
 .section:first-of-type {
@@ -110,12 +110,14 @@ main {
 }
 
 .section__title {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
-  padding-bottom: var(--space-xs);
-  border-bottom: 1px solid var(--color-accent);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  padding-bottom: var(--space-sm);
+  border-bottom: 2px solid var(--color-accent);
   margin-bottom: var(--space-md);
 }
 
@@ -134,10 +136,29 @@ main {
 
 .article__title {
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   line-height: 1.3;
   font-weight: 600;
   margin-bottom: var(--space-xs);
+}
+
+/* Lead article in each section: bigger, bolder, more breathing room. */
+.section .article:first-of-type .article__title {
+  font-size: 1.7rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-sm);
+}
+
+.section .article:first-of-type .article__summary {
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
+.section .article:first-of-type {
+  padding: var(--space-md) 0 var(--space-lg);
+  border-bottom: 2px solid var(--color-rule);
 }
 
 .article__title a {
