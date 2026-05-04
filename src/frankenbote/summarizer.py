@@ -17,6 +17,7 @@ The summarizer NEVER fetches article bodies from the publisher. It works
 only with what the feed provided.
 """
 
+import json
 import os
 
 import anthropic
@@ -41,12 +42,11 @@ STIL:
   berichtet. Erfinde nichts, ergänze keine Hintergründe, die nicht
   vorliegen.
 - Auf Deutsch, klare Sprache, vollständige Sätze.
+- Verwende keine Anführungszeichen (weder " noch „ ") innerhalb der
+  Zusammenfassungen — auch nicht zur Hervorhebung von Begriffen.
 
 LÄNGE:
-- Standard-Artikel (is_lead=false): 2-3 vollständige Sätze.
-- Leitartikel pro Sektion (is_lead=true): 3-4 vollständige Sätze. Der
-  zusätzliche Satz darf Kontext oder Einordnung geben, soweit aus Titel
-  und Vorspann ableitbar.
+- 2-3 vollständige Sätze pro Artikel.
 
 NULL-AUSGABE:
 - Wenn Titel und Vorspann zusammen zu wenig Substanz haben, um eine
@@ -109,6 +109,32 @@ class _SummaryDecision(BaseModel):
 class _SummarizerResponse(BaseModel):
     summaries: list[_SummaryDecision]
 
+# -------- JSON helper --------
+
+def _normalize_tool_input(tool_input: dict) -> dict:
+    """Defend against Claude returning the summaries array as a JSON string.
+
+    Anthropic's tool-use API is supposed to deliver typed arguments, but
+    occasionally the model serializes a nested array as a string. Detect
+    that case and parse it back into a real list. Pure data fix-up — no
+    semantic change.
+    """
+    summaries = tool_input.get("summaries")
+    if isinstance(summaries, str):
+        # The model returned an array-as-string. Decode it.
+        click.echo("WARN: Detected summaries as JSON string, parsing it…")
+        try:
+            parsed = json.loads(summaries)
+        except  json.JSONDecodeError as e:
+            save_failure("summarizer", 0, f"invalid JSON in summaries string: {e}", summaries)
+            raise ValueError(f"summaries was a string but not valid JSON: {e}") from e
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"summaries was a string but its JSON content is {type(parsed).__name__}"
+            )
+        tool_input = {**tool_input, "summaries": parsed}
+    return tool_input
+
 
 # -------- Prompt building --------
 
@@ -159,11 +185,6 @@ def _call_llm(
         tool_choice={"type": "tool", "name": "submit_summaries"},
         messages=[{"role": "user", "content": user_prompt}],
     ) as stream:
-        chunks_seen = 0
-        for _chunk in stream.text_stream:
-            chunks_seen += 1
-            if chunks_seen % 25 == 0:
-                click.echo(".", nl=False)
         msg = stream.get_final_message()
 
     for block in msg.content:
@@ -205,9 +226,9 @@ def summarize_edition(
 
     last_error: str | None = None
     response: _SummarizerResponse | None = None
-    
+
     for attempt in (1, 2):
-        click.echo(f"\nSummarizing {len(flat)} articles (attempt {attempt})…")
+        click.echo(f"\nSummarizing {len(flat)} articles… (tool-use API call, ~60-120 seconds)")
         tool_input, stop_reason, raw_msg = _call_llm(
             client, model, user_prompt, max_output_tokens
         )
@@ -241,6 +262,7 @@ def summarize_edition(
             continue
 
         try:
+            tool_input = _normalize_tool_input(tool_input)
             response = _SummarizerResponse(**tool_input)
             break
         except ValidationError as e:

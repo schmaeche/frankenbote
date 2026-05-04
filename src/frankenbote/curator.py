@@ -19,6 +19,7 @@ It does NOT decide which articles end up in the final edition — that's
 the selector's job.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -71,6 +72,27 @@ def load_curator_config(path: Path | str = "config/sections.yaml") -> CuratorCon
         raise ValueError(f"{path} must contain a top-level 'curator:' key")
     return CuratorConfig(**raw["curator"])
 
+# -------- JSON helpers --------
+
+def _normalize_tool_input(tool_input: dict) -> dict:
+    """Defend against Claude returning the decisions array as a JSON string.
+
+    See summarizer._normalize_tool_input for context.
+    """
+    decisions = tool_input.get("decisions")
+    if isinstance(decisions, str):
+        click.echo("WARN: Detected decisions as JSON string, parsing it…")
+        try:
+            parsed = json.loads(decisions)
+        except json.JSONDecodeError as e:
+            save_failure("curator", 0, f"invalid JSON in decisions string: {e}", decisions)
+            raise ValueError(f"decisions was a string but not valid JSON: {e}") from e
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"decisions was a string but its JSON content is {type(parsed).__name__}"
+            )
+        tool_input = {**tool_input, "decisions": parsed}
+    return tool_input
 
 # -------- Prompt --------
 
@@ -255,7 +277,10 @@ def curate(
     last_error: str | None = None
 
     for attempt in (1, 2):
-        click.echo(f"\nCurating {len(candidates)} candidates (attempt {attempt})…")
+        click.echo(
+            f"\nCurating {len(candidates)} candidates (attempt {attempt})… "
+            f"(tool-use API call, may take 3-7 minutes)"
+        )
         tool_input, stop_reason, raw_msg = _call_llm(
             client, config.model, user_prompt, max_output_tokens, tool
         )
@@ -287,6 +312,7 @@ def curate(
             continue
 
         try:
+            tool_input = _normalize_tool_input(tool_input)
             response = CuratorResponse(**tool_input)
             break
         except ValidationError as e:
