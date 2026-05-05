@@ -24,6 +24,7 @@ from frankenbote.storage import (
 from frankenbote.curator import load_curator_config, curate
 from frankenbote.renderer import render_all
 from frankenbote.summarizer import summarize_edition
+from frankenbote.publisher import load_publisher_config_from_env, publish
 
 
 @click.group()
@@ -201,6 +202,21 @@ def pipeline(
     # 6. Render
     stats = render_all()
     click.echo(f"\nRendered {stats['editions_rendered']} edition(s) to output/.")
+
+    # 7. Publish
+    try:
+        pub_config = load_publisher_config_from_env()
+        pub_stats = publish(pub_config)
+        click.echo(
+            f"\nPublished to {pub_config.host}: "
+            f"{pub_stats['uploaded']} uploaded, {pub_stats['pruned']} pruned."
+        )
+    except RuntimeError as e:
+        # If publishing isn't configured (e.g., during dev), warn but don't fail.
+        click.echo(f"\n⚠ Skipped publish: {e}", err=True)
+    except Exception as e:
+        click.echo(f"\n❌ Publish failed: {type(e).__name__}: {e}", err=True)
+        # Don't sys.exit — the local edition is still valid.
 
 
 @main.command(name="curate")
@@ -387,6 +403,29 @@ def summarize_cmd(edition_date, sections_path: Path) -> None:
     out_path = save_edition(edition, edition_date)
     click.echo(f"  → Updated {out_path}")
 
+
+@main.command(name="publish")
+def publish_cmd() -> None:
+    """Upload the local output/ tree to netcup via SFTP."""
+    try:
+        config = load_publisher_config_from_env()
+    except RuntimeError as e:
+        click.echo(f"❌ {e}", err=True)
+        sys.exit(1)
+
+    click.echo(
+        f"Publishing to {config.username}@{config.host}:{config.remote_dir}…"
+    )
+    try:
+        stats = publish(config)
+    except Exception as e:
+        click.echo(f"❌ Publish failed: {type(e).__name__}: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(
+        f"  → Uploaded: {stats['uploaded']}, pruned: {stats['pruned']}"
+    )
     
+
 if __name__ == "__main__":
     main()

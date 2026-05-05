@@ -18,4 +18,6 @@ services:
       # Mount data and output — read-write; the app produces these.
       - ./data:/app/data
       - ./output:/app/output
+      # Mount SSH credentials for SFTP publishing — read-only; the app only reads these.
+      - ${HOME}/.ssh/frankenbote_netcup:/app/.ssh/frankenbote_netcup:ro
     # No ports exposed — this is a CLI tool, not a web server.
