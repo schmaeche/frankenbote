@@ -86,12 +86,21 @@ curator:
     - Drop pure paywall teasers, "Plus"/"Premium" lock-out pages, and
       empty SEO bait.
     - Drop sponsored/advertorial content even if it leaked into a feed.
+    - Drop video-only articles where the textual content is just a
+      placeholder ("tagesschau", "Tagesschau in 100 Sekunden", "Video"),
+      since they cannot be properly summarized and appear empty in the
+      digest.
     - Prefer substantive reporting over hot-take opinion pieces.
     - Prefer enduring analysis and reporting over live tickers, in-progress
       coverage, breaking-news updates, and announcements (e.g. starting
       eleven, traffic alerts that resolve same-day) that lose value within
       hours of publication.
     - Wirtschaft is welcome, including dry economic news.
+    - Practical service journalism with local relevance — family outings,
+      weekend ideas, event tips for Franconia (Familienausflüge,
+      Wochenend-Ideen, Veranstaltungstipps), hiking — is welcome and
+      should not be dismissed as listicle filler. It is a core part of
+      a personal weekly digest.
     - For the relevance_score (0-10): score within the article's priority
       tier. A "10 P4" means it's the most important national/world story
       of the week; a "10 P1" means a major Nuremberg story.
