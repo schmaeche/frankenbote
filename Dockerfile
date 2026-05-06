@@ -21,6 +21,12 @@ COPY pyproject.toml ./
 # Copy the package source so pip can install it.
 COPY src/ ./src/
 
+# Copy templates so they're available in docker packagee for rendering and publishing.
+COPY templates/ ./templates/
+
+# Copy assets so they're available in docker packagee for rendering and publishing.
+COPY assets/ ./assets/
+
 # Install the project and its dependencies.
 RUN pip install --no-cache-dir -e .
 
