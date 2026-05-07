@@ -1,6 +1,6 @@
 [project]
 name = "frankenbote"
-version = "0.1.0"
+version = "0.1.2"
 description = "Personal weekly news digest for Franconia, Bavaria and Germany"
 readme = "README.md"
 requires-python = ">=3.14"
