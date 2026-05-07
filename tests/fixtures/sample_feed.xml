@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://example.com</link>
+    <description>A minimal RSS feed for tests</description>
+
+    <item>
+      <title>First Article</title>
+      <link>https://example.com/article/1</link>
+      <description>Summary of the first article.</description>
+      <pubDate>Mon, 04 May 2026 10:00:00 +0000</pubDate>
+    </item>
+
+    <item>
+      <title>Second Article</title>
+      <link>https://example.com/article/2</link>
+      <description>Summary of the second article.</description>
+      <pubDate>Sun, 03 May 2026 08:30:00 +0000</pubDate>
+    </item>
+
+    <item>
+      <!-- No title — should be skipped by _parse() -->
+      <link>https://example.com/article/3</link>
+      <description>Article missing a title.</description>
+      <pubDate>Sat, 02 May 2026 09:00:00 +0000</pubDate>
+    </item>
+
+    <item>
+      <title>Article Without Link</title>
+      <!-- No link — should be skipped by _parse() -->
+      <description>Article missing a link.</description>
+      <pubDate>Sat, 02 May 2026 11:00:00 +0000</pubDate>
+    </item>
+
+    <item>
+      <title>Article Without Date</title>
+      <link>https://example.com/article/5</link>
+      <description>Article with no pubDate at all.</description>
+    </item>
+
+  </channel>
+</rss>
