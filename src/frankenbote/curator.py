@@ -212,7 +212,7 @@ Call the 'submit_decisions' tool. {len(candidates)} decisions expected."""
 # -------- LLM call --------
 
 
-def _call_llm(
+def _call_llm(  # pragma: no cover
     client: anthropic.Anthropic,
     model: str,
     user_prompt: str,
@@ -248,7 +248,7 @@ def _call_llm(
 # -------- Public API --------
 
 
-def curate(
+def curate(  # pragma: no cover
     candidates: list[Article],
     config: CuratorConfig,
     api_key: str | None = None,

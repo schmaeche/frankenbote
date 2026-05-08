@@ -163,7 +163,7 @@ Rufe das Tool 'submit_summaries' auf. {len(articles)} Einträge erwartet."""
 # -------- LLM call --------
 
 
-def _call_llm(
+def _call_llm(  # pragma: no cover
     client: anthropic.Anthropic,
     model: str,
     user_prompt: str,
@@ -197,7 +197,7 @@ def _call_llm(
 # -------- Public API --------
 
 
-def summarize_edition(
+def summarize_edition(  # pragma: no cover
     edition: Edition,
     model: str,
     api_key: str | None = None,

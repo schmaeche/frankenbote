@@ -70,6 +70,41 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 
 ---
 
+## Development
+
+### Running tests
+
+Install the dev dependencies once, then run the suite:
+
+```bash
+pip install -e ".[dev]"
+pytest -q
+```
+
+With coverage:
+
+```bash
+pytest --cov=frankenbote --cov-report=term-missing -q
+```
+
+Stop at the first failure (good for debugging):
+
+```bash
+pytest -x --tb=short -q
+```
+
+TDD watch mode — reruns on every file save:
+
+```bash
+ptw . -- -x --tb=short -q
+```
+
+### Coverage notes
+
+`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. The `curate()` and `summarize_edition()` public API functions are also marked `# pragma: no cover` for the same reason (live Anthropic API calls). Everything else is covered at ≥ 70%.
+
+---
+
 ## Running locally
 
 ### Verify setup
@@ -197,6 +232,9 @@ frankenbote/
 ├── assets/           # Static CSS and icons
 ├── data/             # Intermediate pipeline data (candidates, curated JSON)
 ├── output/           # Final rendered HTML (git-ignored)
+├── tests/            # pytest test suite
+│   ├── conftest.py   # Shared factory functions
+│   └── fixtures/     # Static test data (sample RSS feed)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

@@ -33,7 +33,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "respx>=0.22",
     "pytest-cov>=6.0",
-    "pytest-watch>=4.2",
+    "pytest-watcher>=0.6.3",
 ]
 
 [build-system]
@@ -49,7 +49,11 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["src/frankenbote"]
-omit = ["*/cli.py"]
+omit = [
+    "*/cli.py",        # thin coordinator; low value to mock
+    "*/publisher.py",  # SFTP upload; requires a live server
+    "*/__main__.py",   # entry-point boilerplate
+]
 
 [tool.coverage.report]
 show_missing = true
