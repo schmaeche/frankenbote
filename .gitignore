@@ -32,3 +32,8 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# test results
+.coverage
+htmlcov/
+coverage.xml
