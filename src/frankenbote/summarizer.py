@@ -125,8 +125,7 @@ def _normalize_tool_input(tool_input: dict) -> dict:
         click.echo("WARN: Detected summaries as JSON string, parsing it…")
         try:
             parsed = json.loads(summaries)
-        except  json.JSONDecodeError as e:
-            save_failure("summarizer", 0, f"invalid JSON in summaries string: {e}", summaries)
+        except json.JSONDecodeError as e:
             raise ValueError(f"summaries was a string but not valid JSON: {e}") from e
         if not isinstance(parsed, list):
             raise ValueError(

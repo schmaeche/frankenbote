@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
     image: frankenbote:dev
     env_file:
       - .env
@@ -12,12 +13,23 @@ services:
       - ./src:/app/src:ro
       # Mount config — read-only; the app should never write here.
       - ./config:/app/config:ro
-      # Mount templates and assets — read-only; the app should never write here. 
-      - ./templates:/app/templates:ro  
-      - ./assets:/app/assets:ro   
+      # Mount templates and assets — read-only; the app should never write here.
+      - ./templates:/app/templates:ro
+      - ./assets:/app/assets:ro
       # Mount data and output — read-write; the app produces these.
       - ./data:/app/data
       - ./output:/app/output
       # Mount SSH credentials for SFTP publishing — read-only; the app only reads these.
       - ${HOME}/.ssh/frankenbote_netcup:/app/.ssh/frankenbote_netcup:ro
     # No ports exposed — this is a CLI tool, not a web server.
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    image: frankenbote:test
+    env_file:
+      - .env
+    # No volumes — tests run against the baked-in source and test files.
+    # No ports exposed — this is a test runner, not a web server.

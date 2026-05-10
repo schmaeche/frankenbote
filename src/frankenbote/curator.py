@@ -85,7 +85,6 @@ def _normalize_tool_input(tool_input: dict) -> dict:
         try:
             parsed = json.loads(decisions)
         except json.JSONDecodeError as e:
-            save_failure("curator", 0, f"invalid JSON in decisions string: {e}", decisions)
             raise ValueError(f"decisions was a string but not valid JSON: {e}") from e
         if not isinstance(parsed, list):
             raise ValueError(

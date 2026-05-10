@@ -77,7 +77,7 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 Install the dev dependencies once, then run the suite:
 
 ```bash
-pip install -e ".[dev]"
+docker compose run --rm test 
 pytest -q
 ```
 

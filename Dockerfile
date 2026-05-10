@@ -1,5 +1,7 @@
-# Use the official slim Python 3.14 image — small, secure, well-maintained.
-FROM python:3.14-slim
+# ─────────────────────────────────────────────────────────────────────────────
+# base — shared system setup, used by all stages
+# ─────────────────────────────────────────────────────────────────────────────
+FROM python:3.14-slim AS base
 
 # Don't write .pyc files; flush stdout/stderr immediately so logs appear in real time.
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -21,14 +23,20 @@ COPY pyproject.toml ./
 # Copy the package source so pip can install it.
 COPY src/ ./src/
 
-# Copy templates so they're available in docker packagee for rendering and publishing.
+# Copy templates so they're available in the package for rendering and publishing.
 COPY templates/ ./templates/
 
-# Copy assets so they're available in docker packagee for rendering and publishing.
+# Copy assets so they're available in the package for rendering and publishing.
 COPY assets/ ./assets/
 
-# Install the project and its dependencies.
-RUN pip install --no-cache-dir -e .
+
+# ─────────────────────────────────────────────────────────────────────────────
+# production — lean image, no dev/test tooling
+# Regular (non-editable) install: the package is truly baked in.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS production
+
+RUN pip install --no-cache-dir .
 
 # Switch to the non-root user.
 USER frankenbote
@@ -36,3 +44,34 @@ USER frankenbote
 # Default command — overridable via docker compose run.
 ENTRYPOINT ["frankenbote"]
 CMD ["--help"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# dev — editable install so volume-mounted src/ changes are picked up immediately
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS dev
+
+RUN pip install --no-cache-dir -e ".[dev]"
+
+# Switch to the non-root user.
+USER frankenbote
+
+# Default command — overridable via docker compose run.
+ENTRYPOINT ["frankenbote"]
+CMD ["--help"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# test — inherits dev, bakes in the test suite, runs pytest by default
+# ─────────────────────────────────────────────────────────────────────────────
+FROM dev AS test
+
+# Switch back to root briefly to copy test files (frankenbote user has no write
+# access to /app which is owned by root at this point).
+USER root
+COPY tests/ ./tests/
+RUN mkdir /app/.pytest_cache && chown frankenbote /app/.pytest_cache
+USER frankenbote
+
+ENTRYPOINT ["pytest"]
+CMD ["-q"]
