@@ -1,6 +1,6 @@
 [project]
 name = "frankenbote"
-version = "0.1.2"
+dynamic = ["version"] 
 description = "Personal weekly news digest for Franconia, Bavaria and Germany"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -37,8 +37,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=70"]
-build-backend = "setuptools.build_meta"
+requires = ["setuptools>=70", "setuptools-scm>=8"]
+build-backend = "setuptools.backends.legacy:build"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -58,3 +58,6 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 fail_under = 70
+
+[tool.setuptools_scm]
+# git tag is the single source of truth — no config needed

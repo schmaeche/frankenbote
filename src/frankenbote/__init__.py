@@ -1,3 +1,7 @@
 """Frankenbote — a personal weekly news digest for Franconia, Bavaria and Germany."""
+from importlib.metadata import version, PackageNotFoundError
 
-__version__ = "0.1.2"
+try:
+    __version__ = version("frankenbote")
+except PackageNotFoundError:
+    __version__ = "unknown"
