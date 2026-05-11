@@ -9,6 +9,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Allows CI to override the fallback version at build time
+ARG SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FRANKENBOTE=0.0.1-dev0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FRANKENBOTE=${SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FRANKENBOTE}
+
 # Create a non-root user for runtime. Running as root inside containers is
 # a common security mistake; we avoid it from day one.
 RUN useradd --create-home --shell /bin/bash frankenbote
