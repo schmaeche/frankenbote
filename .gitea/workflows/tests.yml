@@ -7,7 +7,46 @@ on:
     branches: [main]
 
 jobs:
+  # ── Branch name ─────────────────────────────────────────────────────────────
+  branch-name:
+    name: Check branch name
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Validate branch name
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if [[ ! "$BRANCH" =~ ^(feat|fix|chore|docs|refactor|test)/[a-z0-9-]+$ ]]; then
+            echo "❌ Branch name '$BRANCH' does not follow naming convention."
+            echo "   Expected format: <type>/<description> or <type>/<issue>-<description>"
+            echo "   Allowed types: feat, fix, chore, docs, refactor, test"
+            echo "   Example: feat/42-rss-feed-br24"
+            exit 1
+          fi
+          echo "✅ Branch name '$BRANCH' is valid."
+
+  # ── PR title (commitlint) ────────────────────────────────────────────────────
+  commitlint:
+    name: Check PR title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Validate conventional commit format
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Pattern: type(optional scope): description
+          if [[ ! "$TITLE" =~ ^(feat|fix|chore|docs|refactor|test|perf|ci|build|revert)(\([a-z0-9-]+\))?\!?:\ .+ ]]; then
+            echo "❌ PR title does not follow conventional commits format."
+            echo "   Title: '$TITLE'"
+            echo "   Expected: <type>(optional scope): <description>"
+            echo "   Example: feat(feeds): add RSS feed for SZ.de"
+            echo "   Allowed types: feat, fix, chore, docs, refactor, test, perf, ci, build, revert"
+            exit 1
+          fi
+          echo "✅ PR title '$TITLE' is valid."
+
   test:
+    name: Run tests
     runs-on: ubuntu-latest
 
     steps:
