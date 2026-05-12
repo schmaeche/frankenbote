@@ -10,14 +10,15 @@ jobs:
 
     steps:
       - name: Checkout (full history for setuptools-scm)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0          # setuptools-scm needs the full tag history
+          token: ${{ secrets.WORKFLOW_ACTIONS }}  # for pushing changelog commits back to main
 
       # ── Python wheel ────────────────────────────────────────────────────────
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"  # build tooling only; runtime is 3.14 in Docker
 
@@ -33,6 +34,25 @@ jobs:
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # ── Changelog ───────────────────────────────────────────────────────────
+
+      - name: Install git-cliff
+        run: pip install git-cliff
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Generate full CHANGELOG.md from all tags
+          git cliff --output CHANGELOG.md
+
+      - name: Commit CHANGELOG.md back to main
+        run: |
+          git config user.name "gitea-actions[bot]"
+          git config user.email "gitea-actions[bot]@users.noreply.gitea"
+          git add CHANGELOG.md
+          git diff --cached --quiet || git commit -m "chore(changelog): update for ${{ github.ref_name }} [skip ci]"
+          git push origin HEAD:main
 
       # ── Docker image ─────────────────────────────────────────────────────────
 

@@ -245,3 +245,7 @@ frankenbote/
 ## License
 
 See [LICENSE](LICENSE).
+
+## Changelog
+
+See [CHANGELOG](CHANGELOG).
