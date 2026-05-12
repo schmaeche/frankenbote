@@ -3,11 +3,12 @@
 Changes to frankenbote.
 
 ---
-## [unreleased]
+## [0.1.4-beta](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.1.3-beta..v0.1.4-beta) - 2026-05-12
 
 ### Miscellaneous Chores
 
-- **(actions)** Add branch name and PR title validation steps to CI workflow (#13) - ([8523de8](http://192.168.2.134:3000/intipunku/frankenbote/commit/8523de86185640817a41f45bc25abac7d3c25323)) - kura_andi - 
+- **(actions)** Added changelog generator to release action workflow (#14) - ([d26ec17](http://192.168.2.134:3000/intipunku/frankenbote/commit/d26ec17ce55f7c9672f016b8dc761e4377ac9419)) - kura_andi - v0.1.4-beta
+- **(actions)** Add branch name and PR title validation steps to CI workflow (#13) - ([8523de8](http://192.168.2.134:3000/intipunku/frankenbote/commit/8523de86185640817a41f45bc25abac7d3c25323)) - kura_andi - v0.1.4-beta
 
 ---
 ## [0.1.3-beta](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.1.2-beta..v0.1.3-beta) - 2026-05-11
