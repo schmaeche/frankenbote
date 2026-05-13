@@ -74,34 +74,126 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 
 ### Running tests
 
-Install the dev dependencies once, then run the suite:
+### Running tests
 
-```bash
-docker compose run --rm test 
+Tests run in a dedicated `test` container that bakes in pytest and the
+test suite:
+
+\`\`\`bash
+docker compose run --rm test
+\`\`\`
+
+This invokes `pytest -q` by default. Pass additional arguments after the
+service name to override:
+
+\`\`\`bash
+# With coverage
+docker compose run --rm test --cov=frankenbote --cov-report=term-missing -q
+
+# Stop at first failure
+docker compose run --rm test -x --tb=short -q
+\`\`\`
+
+If you prefer to run pytest directly on your host (e.g. for IDE
+integration or TDD watch mode), install dev dependencies first:
+
+\`\`\`bash
+pip install -e ".[dev]"
 pytest -q
-```
-
-With coverage:
-
-```bash
-pytest --cov=frankenbote --cov-report=term-missing -q
-```
-
-Stop at the first failure (good for debugging):
-
-```bash
-pytest -x --tb=short -q
-```
-
-TDD watch mode — reruns on every file save:
-
-```bash
-ptw . -- -x --tb=short -q
-```
+ptw . -- -x --tb=short -q   # watch mode
+\`\`\`
 
 ### Coverage notes
 
 `publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. The `curate()` and `summarize_edition()` public API functions are also marked `# pragma: no cover` for the same reason (live Anthropic API calls). Everything else is covered at ≥ 70%.
+
+---
+
+## Production deployment
+
+Frankenbote is designed to run unattended on a server, publishing a new
+edition on a regular schedule. The pipeline is a one-shot command (not a
+long-running service), so it fits naturally into any cron-like scheduler.
+
+### Recommended pattern
+
+1. **Build once, deploy many.** Build the Docker image on a development
+   machine, push it to a container registry (Docker Hub, GitHub Container
+   Registry, a self-hosted Gitea registry, etc.), and pull from the
+   production server. The image contains everything needed at runtime
+   (code, templates, assets); only configuration and data are externally
+   supplied.
+
+2. **Separate dev and prod credentials.** Use a different Anthropic API
+   key per environment to isolate cost reporting and limit blast radius
+   if one key leaks. The same applies to SSH keys for SFTP publishing:
+   keep a passphrase-protected key on the development machine and a
+   separate passphrase-less key on the server (since cron jobs cannot
+   type passphrases).
+
+3. **Lock down the production SSH key.** A passphrase-less private key
+   is only as secure as its file permissions. Set it to `0600`, ensure
+   it is owned by the user that runs the container, and confine the
+   matching public key on the remote server to a single restricted user
+   account.
+
+### Container user and host permissions
+
+The container runs as a non-root user `frankenbote` with UID `1000`.
+Any host directories mounted into the container (`data/`, `output/`,
+`logs/`, and the SSH key file) must be readable and writable by UID
+`1000`, not by the host user that invokes Docker:
+
+```bash
+sudo chown -R 1000:1000 data/ output/ logs/ .ssh/frankenbote_publish
+```
+
+This applies to both manual runs and scheduler-invoked runs. Mismatched
+ownership is the most common deployment error.
+
+### Image versioning
+
+Build with both a version tag and `:latest`:
+
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -t registry.example.com/myorg/frankenbote:0.1.2 \
+  -t registry.example.com/myorg/frankenbote:latest \
+  --push \
+  .
+```
+
+- **Versioned tags** are immutable: once pushed, do not overwrite them.
+  This guarantees a known-good rollback target.
+- **`:latest`** is a moving pointer to the most recent stable build.
+  Convenient when the production server should automatically pick up
+  new builds; less safe than pinning to an explicit version.
+
+The `--platform` flag is required when the build machine and the
+deployment server use different CPU architectures (e.g. building on
+Apple Silicon for an Intel server).
+
+### Scheduling
+
+The simplest scheduler invocation is a wrapper script that:
+
+1. Pulls the latest image (for `:latest`-based deployments).
+2. Runs `docker compose run --rm app pipeline`.
+3. Captures stdout and stderr to a timestamped log file.
+4. Exits with the pipeline's exit status so the scheduler can detect
+   failures.
+
+Cron, systemd timers, or any platform-specific task scheduler will work.
+
+### Securing the published site
+
+Frankenbote's output is a directory of static HTML — there is no
+server-side application logic. Combine this with any standard web-server
+authentication mechanism for access control. For Apache, Basic Auth via
+`.htaccess` + `.htpasswd` (with bcrypt password hashes) is sufficient
+for a personal-scale site. HTTPS is non-negotiable; never deploy Basic
+Auth over plain HTTP, since the password is sent on every request.
 
 ---
 
@@ -248,4 +340,4 @@ See [LICENSE](LICENSE).
 
 ## Changelog
 
-See [CHANGELOG](CHANGELOG).
+See [CHANGELOG.md](CHANGELOG.md).

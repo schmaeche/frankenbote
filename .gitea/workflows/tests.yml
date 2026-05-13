@@ -16,7 +16,7 @@ jobs:
       - name: Validate branch name
         run: |
           BRANCH="${{ github.head_ref }}"
-          if [[ ! "$BRANCH" =~ ^(feat|fix|chore|docs|refactor|test)/[a-z0-9-]+$ ]]; then
+          if [[ ! "$BRANCH" =~ ^(feat|fix|chore|docs|refactor|test)/[a-zA-Z0-9._-]+$ ]]; then
             echo "❌ Branch name '$BRANCH' does not follow naming convention."
             echo "   Expected format: <type>/<description> or <type>/<issue>-<description>"
             echo "   Allowed types: feat, fix, chore, docs, refactor, test"
