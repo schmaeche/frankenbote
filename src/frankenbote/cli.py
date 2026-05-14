@@ -12,7 +12,8 @@ import click
 from frankenbote.config import load_sources
 from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
-from frankenbote.selector import select, SelectorOptions
+from frankenbote.models import Priority
+from frankenbote.selector import select, SelectorOptions, load_selector_targets
 from frankenbote.storage import ( 
     load_edition,
     save_candidates,
@@ -125,6 +126,7 @@ def pipeline(
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
         curator_cfg = load_curator_config(sections_path)
+        targets = load_selector_targets(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load config: {e}", err=True)
         sys.exit(1)
@@ -163,18 +165,21 @@ def pipeline(
     save_curated_raw(curated, edition_date)
 
     # 4. Select
+    options = SelectorOptions(edition_size=size, targets=targets)
     edition = select(
         curated=curated,
         config=curator_cfg,
         source_ids_in_order=[s.id for s in sources],
-        options=SelectorOptions(edition_size=size),
+        options=options,
         edition_date=edition_date,
         window_start=result.window_start,
         window_end=result.window_end,
     )
     es = edition.stats
+    effective = options.effective_targets
+    target_str = " ".join(f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4"))
     click.echo(f"\nFinal edition: {es.selected} articles")
-    click.echo("By priority:")
+    click.echo(f"By priority (target: {target_str}):")
     for p in ("P1", "P2", "P3", "P4"):
         count = es.by_priority.get(p, 0)
         pct = (count / es.selected * 100) if es.selected else 0.0
@@ -306,11 +311,17 @@ def curate_cmd(candidates_date, sections_path: Path) -> None:
     show_default=True,
     help="Target number of articles in the final edition.",
 )
-def select_cmd(curated_date, sections_path: Path, sources_path: Path, size: int) -> None:
+def select_cmd(
+    curated_date,
+    sections_path: Path,
+    sources_path: Path,
+    size: int,
+) -> None:
     """Run the selector on a previously-saved curated-raw JSON file."""
     try:
         config = load_curator_config(sections_path)
         source_ids = [s.id for s in load_sources(sources_path)]
+        targets = load_selector_targets(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load config: {e}", err=True)
         sys.exit(1)
@@ -322,18 +333,21 @@ def select_cmd(curated_date, sections_path: Path, sources_path: Path, size: int)
         click.echo("    Run `frankenbote curate ...` first.", err=True)
         sys.exit(1)
 
+    options = SelectorOptions(edition_size=size, targets=targets)
     edition = select(
         curated=curated,
         config=config,
         source_ids_in_order=source_ids,
-        options=SelectorOptions(edition_size=size),
+        options=options,
         edition_date=curated_date,
     )
 
     s = edition.stats
+    effective = options.effective_targets
+    target_str = " ".join(f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4"))
     click.echo(f"Selection from {s.candidates_in} candidates ({s.curated_kept} eligible after curation):")
     click.echo(f"  → {s.selected} articles in final edition\n")
-    click.echo("By priority (target: P1=50% P2=25% P3=15% P4=10%):")
+    click.echo(f"By priority (target: {target_str}):")
     for p in ("P1", "P2", "P3", "P4"):
         count = s.by_priority.get(p, 0)
         pct = (count / s.selected * 100) if s.selected else 0.0

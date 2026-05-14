@@ -20,6 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+
+import yaml
 
 from frankenbote.curator import CuratorConfig
 from frankenbote.models import (
@@ -40,6 +43,29 @@ DEFAULT_TARGETS: dict[Priority, float] = {
 }
 
 DEFAULT_EDITION_SIZE = 25
+
+
+def load_selector_targets(path: Path | str) -> dict[Priority, float] | None:
+    """Read optional selector.targets from sections.yaml.
+
+    Returns None if the selector key is absent (caller falls back to DEFAULT_TARGETS).
+    Raises ValueError on invalid or incomplete config.
+    """
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    selector_cfg = (raw or {}).get("selector")
+    if selector_cfg is None:
+        return None
+    targets_raw = selector_cfg.get("targets") or {}
+    result: dict[Priority, float] = {}
+    for p in Priority:
+        val = targets_raw.get(p.value)
+        if val is None:
+            raise ValueError(f"selector.targets missing key '{p.value}' in {path}")
+        result[p] = float(val)
+    total = sum(result.values())
+    if not (0.99 <= total <= 1.01):
+        raise ValueError(f"selector.targets must sum to ~1.0, got {total:.3f}")
+    return result
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,16 @@
 #                prompt. Tweak this until the curator behaves the way you want.
 # - model:       The Anthropic model used for curation. Pinned for stability.
 
+# Remove selector.targets to use default distribution.
+# (50% P1, 25% P2, 15% P3, 10% P4). 
+selector:
+  # Soft target distribution for the final edition. Must sum to ~1.0.
+  targets:
+    P1: 0.50
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+
 curator:
   # Model used for the curation call. Pinned so behavior is reproducible.
   model: claude-sonnet-4-6

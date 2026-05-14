@@ -3,7 +3,7 @@
 import pytest
 
 from frankenbote.models import Priority
-from frankenbote.selector import SelectorOptions, _compute_quotas, select
+from frankenbote.selector import SelectorOptions, _compute_quotas, _source_order_index, load_selector_targets, select
 from tests.conftest import make_article, make_curated, make_curator_config
 
 DEFAULT_TARGETS = {
@@ -12,6 +12,158 @@ DEFAULT_TARGETS = {
     Priority.P3: 0.15,
     Priority.P4: 0.10,
 }
+
+VALID_TARGETS_YAML = """\
+selector:
+  targets:
+    P1: 0.50
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+"""
+
+
+# ── load_selector_targets ────────────────────────────────────────────────────
+
+class TestLoadSelectorTargets:
+    def test_returns_none_when_selector_key_absent(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("curator:\n  model: claude-sonnet-4-6\n")
+        assert load_selector_targets(f) is None
+
+    def test_returns_none_for_empty_yaml(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("")
+        assert load_selector_targets(f) is None
+
+    def test_returns_correct_dict_for_valid_config(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text(VALID_TARGETS_YAML)
+        result = load_selector_targets(f)
+        assert result == {
+            Priority.P1: 0.50,
+            Priority.P2: 0.25,
+            Priority.P3: 0.15,
+            Priority.P4: 0.10,
+        }
+
+    def test_values_are_floats(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text(VALID_TARGETS_YAML)
+        result = load_selector_targets(f)
+        assert all(isinstance(v, float) for v in result.values())
+
+    def test_accepts_path_as_string(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text(VALID_TARGETS_YAML)
+        result = load_selector_targets(str(f))
+        assert result is not None
+
+    def test_raises_when_priority_key_missing(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("""\
+selector:
+  targets:
+    P1: 0.60
+    P2: 0.25
+    P3: 0.15
+""")
+        with pytest.raises(ValueError, match="missing key 'P4'"):
+            load_selector_targets(f)
+
+    def test_raises_when_targets_empty(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("selector:\n  targets:\n")
+        with pytest.raises(ValueError, match="missing key"):
+            load_selector_targets(f)
+
+    def test_raises_when_sum_too_low(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("""\
+selector:
+  targets:
+    P1: 0.40
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+""")
+        with pytest.raises(ValueError, match="must sum to ~1.0"):
+            load_selector_targets(f)
+
+    def test_raises_when_sum_too_high(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("""\
+selector:
+  targets:
+    P1: 0.60
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+""")
+        with pytest.raises(ValueError, match="must sum to ~1.0"):
+            load_selector_targets(f)
+
+    def test_accepts_sum_at_lower_boundary(self, tmp_path):
+        # 0.99 is the minimum accepted sum
+        f = tmp_path / "sections.yaml"
+        f.write_text("""\
+selector:
+  targets:
+    P1: 0.49
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+""")
+        result = load_selector_targets(f)
+        assert result is not None
+
+    def test_accepts_sum_at_upper_boundary(self, tmp_path):
+        # 1.01 is the maximum accepted sum
+        f = tmp_path / "sections.yaml"
+        f.write_text("""\
+selector:
+  targets:
+    P1: 0.51
+    P2: 0.25
+    P3: 0.15
+    P4: 0.10
+""")
+        result = load_selector_targets(f)
+        assert result is not None
+
+    def test_error_message_includes_path(self, tmp_path):
+        f = tmp_path / "sections.yaml"
+        f.write_text("selector:\n  targets:\n")
+        with pytest.raises(ValueError, match=str(f)):
+            load_selector_targets(f)
+
+
+# ── _source_order_index ─────────────────────────────────────────────────────
+
+class TestSourceOrderIndex:
+    def test_first_source_returns_zero(self):
+        assert _source_order_index("a", ["a", "b", "c"]) == 0
+
+    def test_middle_source_returns_correct_index(self):
+        assert _source_order_index("b", ["a", "b", "c"]) == 1
+
+    def test_last_source_returns_correct_index(self):
+        assert _source_order_index("c", ["a", "b", "c"]) == 2
+
+    def test_unknown_source_returns_length(self):
+        sources = ["a", "b", "c"]
+        assert _source_order_index("z", sources) == len(sources)
+
+    def test_empty_list_unknown_source_returns_zero(self):
+        assert _source_order_index("a", []) == 0
+
+    def test_earlier_source_has_lower_index_than_later(self):
+        sources = ["rss_a", "rss_b", "rss_c"]
+        assert _source_order_index("rss_a", sources) < _source_order_index("rss_b", sources)
+
+    def test_unknown_source_sorts_after_all_known(self):
+        sources = ["a", "b"]
+        assert _source_order_index("unknown", sources) > _source_order_index("b", sources)
 
 
 # ── _compute_quotas ──────────────────────────────────────────────────────────

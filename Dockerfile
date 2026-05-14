@@ -74,7 +74,7 @@ FROM dev AS test
 # access to /app which is owned by root at this point).
 USER root
 COPY tests/ ./tests/
-RUN mkdir /app/.pytest_cache && chown frankenbote /app/.pytest_cache
+RUN mkdir /app/.pytest_cache && chown frankenbote /app/.pytest_cache && chown frankenbote /app
 USER frankenbote
 
 ENTRYPOINT ["pytest"]
