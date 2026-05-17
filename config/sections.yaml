@@ -114,5 +114,13 @@ curator:
     - For the relevance_score (0-10): score within the article's priority
       tier. A "10 P4" means it's the most important national/world story
       of the week; a "10 P1" means a major Nuremberg story.
-    - Brief one-sentence rationale per article — Andreas will skim these
-      to calibrate the system.
+    - Brief one-sentence rationale per article.
+    - Same-story deduplication: if two or more articles report the *same
+      underlying news event* (same who/what/when, covered by different
+      publishers), keep the most substantive and well-written article regardless
+      of whether it is local or national, and set section: null for the rest.
+      Note "Duplicate of [source]" in the rationale.
+    - Do NOT collapse multi-angle coverage: if articles cover the same ongoing
+      story from genuinely distinct angles (e.g. political response, economic
+      impact, local reaction), treat them as separate articles — that is
+      intentional editorial depth, not duplication.
