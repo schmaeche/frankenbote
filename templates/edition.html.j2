@@ -25,7 +25,7 @@
             <h1 class="masthead__title">
                 Der Frankenbote
                 <span class="masthead__subtitle">
-                    Ausgabe {{ edition.edition_date }} · {{ edition.stats.selected }} Artikel
+                    Ausgabe {{ edition.edition_date | calendar_week }} · {{ edition.stats.selected }} Artikel
                 </span>
             </h1>
         </div>
@@ -58,10 +58,14 @@
                 </span>
                 {% endif %}
             </div>
-
+            
             {% if item.rationale %}
-            <p class="article__rationale">{{ item.rationale }}</p>
+            <details class="article__rationale-details">
+                <summary></summary>
+                <p class="article__rationale">{{ item.rationale }}</p>
+            </details>
             {% endif %}
+
         </article>
         {% endfor %}
     </section>

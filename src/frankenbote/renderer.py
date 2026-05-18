@@ -94,12 +94,14 @@ def render_all(config: RenderConfig | None = None) -> dict[str, int]:
 
 def _make_jinja_env(templates_dir: Path) -> Environment:
     """Build the Jinja2 environment with autoescape on."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
         autoescape=select_autoescape(enabled_extensions=("j2", "html")),
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    env.filters["calendar_week"] = lambda iso_date: datetime.fromisoformat(iso_date).strftime("%V/%y")
+    return env
 
 
 def _list_recent_editions(retention: int) -> list[Edition]:

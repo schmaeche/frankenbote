@@ -204,16 +204,38 @@ main {
   color: var(--color-accent);
 }
 
-.article__rationale {
-  font-style: italic;
-  color: var(--color-text-faint);
-  font-size: 0.78rem;
+.article__rationale-details {
   margin-top: var(--space-xs);
 }
 
-.article__rationale::before {
-  content: "› ";
-  font-style: normal;
+.article__rationale-details > summary {
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--color-text-faint);
+  list-style: none;
+  user-select: none;
+}
+
+.article__rationale-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.article__rationale-details > summary::before {
+  content: ">";
+  display: inline-block;
+}
+
+.article__rationale-details[open] > summary::before {
+  content: "∨";
+}
+
+.article__rationale {
+  font-style: italic;
+  color: var(--color-text-faint);
+  font-size: 0.7rem;
+  margin-top: var(--space-xs);
+  padding-left: 0.6rem;
+  margin-top: -1rem;
 }
 
 /* ============================================================
