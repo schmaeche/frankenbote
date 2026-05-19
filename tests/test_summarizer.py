@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from frankenbote.summarizer import _build_user_prompt, _normalize_tool_input
+from frankenbote.summarizer import (
+    SummarizerConfig,
+    _build_user_prompt,
+    _normalize_tool_input,
+    load_summarizer_config,
+)
 from tests.conftest import make_curated
 
 
@@ -82,3 +87,47 @@ class TestBuildUserPrompt:
         ]
         prompt = _build_user_prompt(articles)
         assert "7 Einträge erwartet" in prompt
+
+
+# ── SummarizerConfig ─────────────────────────────────────────────────────────
+
+class TestSummarizerConfig:
+    def test_valid_model_string(self):
+        cfg = SummarizerConfig(model="claude-sonnet-4-6")
+        assert cfg.model == "claude-sonnet-4-6"
+
+    def test_missing_model_raises(self):
+        with pytest.raises(Exception):
+            SummarizerConfig()
+
+
+# ── load_summarizer_config ───────────────────────────────────────────────────
+
+class TestLoadSummarizerConfig:
+    def test_loads_model_from_valid_yaml(self, tmp_path):
+        cfg_file = tmp_path / "sections.yaml"
+        cfg_file.write_text("summarizer:\n  model: claude-haiku-4-5\n", encoding="utf-8")
+        cfg = load_summarizer_config(cfg_file)
+        assert cfg.model == "claude-haiku-4-5"
+
+    def test_missing_file_raises_value_error(self, tmp_path):
+        with pytest.raises(ValueError, match="not found"):
+            load_summarizer_config(tmp_path / "nonexistent.yaml")
+
+    def test_yaml_without_summarizer_key_raises(self, tmp_path):
+        cfg_file = tmp_path / "sections.yaml"
+        cfg_file.write_text("curator:\n  model: claude-sonnet-4-6\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="summarizer"):
+            load_summarizer_config(cfg_file)
+
+    def test_non_dict_yaml_raises(self, tmp_path):
+        cfg_file = tmp_path / "sections.yaml"
+        cfg_file.write_text("- just\n- a\n- list\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="summarizer"):
+            load_summarizer_config(cfg_file)
+
+    def test_accepts_path_as_string(self, tmp_path):
+        cfg_file = tmp_path / "sections.yaml"
+        cfg_file.write_text("summarizer:\n  model: claude-opus-4-7\n", encoding="utf-8")
+        cfg = load_summarizer_config(str(cfg_file))
+        assert cfg.model == "claude-opus-4-7"

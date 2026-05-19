@@ -24,7 +24,7 @@ from frankenbote.storage import (
 )
 from frankenbote.curator import load_curator_config, curate
 from frankenbote.renderer import render_all
-from frankenbote.summarizer import summarize_edition
+from frankenbote.summarizer import load_summarizer_config, summarize_edition
 from frankenbote.publisher import load_publisher_config_from_env, publish
 
 
@@ -126,6 +126,7 @@ def pipeline(
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
         curator_cfg = load_curator_config(sections_path)
+        summarizer_cfg = load_summarizer_config(sections_path)
         targets = load_selector_targets(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load config: {e}", err=True)
@@ -193,7 +194,7 @@ def pipeline(
 
     # 5. Summarize
     try:
-        edition = summarize_edition(edition, model=curator_cfg.model)
+        edition = summarize_edition(edition, model=summarizer_cfg.model)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)
@@ -388,7 +389,7 @@ def render_cmd() -> None:
 def summarize_cmd(edition_date, sections_path: Path) -> None:
     """Run the AI summarizer on a previously-saved edition JSON file."""
     try:
-        config = load_curator_config(sections_path)
+        summarizer_cfg = load_summarizer_config(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load sections config: {e}", err=True)
         sys.exit(1)
@@ -401,7 +402,7 @@ def summarize_cmd(edition_date, sections_path: Path) -> None:
         sys.exit(1)
 
     try:
-        edition = summarize_edition(edition, model=config.model)
+        edition = summarize_edition(edition, model=summarizer_cfg.model)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)

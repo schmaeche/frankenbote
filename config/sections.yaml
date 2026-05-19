@@ -18,6 +18,15 @@ selector:
     P3: 0.15
     P4: 0.10
 
+summarizer:
+  # Model used for the summarization call. Pinned so behavior is reproducible.
+  # model: claude-sonnet-4-6
+  model: claude-haiku-4-5-20251001   # cheaper/faster for summarization
+
+curator:
+  model: claude-sonnet-4-6           # more capable for curation decisions
+
+
 curator:
   # Model used for the curation call. Pinned so behavior is reproducible.
   model: claude-sonnet-4-6

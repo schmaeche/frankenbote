@@ -19,13 +19,35 @@ only with what the feed provided.
 
 import json
 import os
+from pathlib import Path
 
 import anthropic
 import click
+import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from frankenbote._debug import save_failure
 from frankenbote.models import CuratedArticle, Edition
+
+
+# -------- Config --------
+
+
+class SummarizerConfig(BaseModel):
+    """Validated structure of sections.yaml -> summarizer block."""
+
+    model: str
+
+
+def load_summarizer_config(path: Path | str = "config/sections.yaml") -> SummarizerConfig:
+    """Load and validate the summarizer section of sections.yaml."""
+    path = Path(path)
+    if not path.exists():
+        raise ValueError(f"Sections config not found: {path}")
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or "summarizer" not in raw:
+        raise ValueError(f"{path} must contain a top-level 'summarizer:' key")
+    return SummarizerConfig(**raw["summarizer"])
 
 
 # -------- Prompt --------
