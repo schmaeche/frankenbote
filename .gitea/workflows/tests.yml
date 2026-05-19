@@ -35,7 +35,7 @@ jobs:
         run: |
           TITLE="${{ github.event.pull_request.title }}"
           # Pattern: type(optional scope): description
-          if [[ ! "$TITLE" =~ ^(feat|fix|chore|docs|refactor|test|perf|ci|build|revert)(\([a-z0-9-]+\))?\!?:\ .+ ]]; then
+          if [[ ! "$TITLE" =~ ^(WIP:\s?)?(feat|fix|chore|docs|refactor|test|perf|ci|build|revert)(\([a-z0-9-]+\))?\!?:\ .+ ]]; then
             echo "❌ PR title does not follow conventional commits format."
             echo "   Title: '$TITLE'"
             echo "   Expected: <type>(optional scope): <description>"
