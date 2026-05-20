@@ -3,7 +3,7 @@
 Changes to frankenbote.
 
 ---
-## [unreleased]
+## [0.2.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.1.4-beta..v0.2.0) - 2026-05-20
 
 ### Bug Fixes
 
@@ -15,12 +15,10 @@ Changes to frankenbote.
 
 ### Features
 
-- **(cli)** Add pipeline option to generate longer wrap-ups for lead articles - ([8c10dec](http://192.168.2.134:3000/intipunku/frankenbote/commit/8c10decc670ef7478721313ed9620a3dfbb1b60c)) - kura_andi
-- **(curator)** Enhance error handling for LLM API calls with network error retries - ([6ddbc8f](http://192.168.2.134:3000/intipunku/frankenbote/commit/6ddbc8f89f8d34fc01773558e86dfb3c0e31c173)) - kura_andi
 - **(curator)** Add deduplication guidelines (#21) - ([0d40b97](http://192.168.2.134:3000/intipunku/frankenbote/commit/0d40b97a934d76695ab8a93b83666f6bf6d53af2)) - kura_andi
 - **(renderer)** Remove rational display (#22) - ([8a437d7](http://192.168.2.134:3000/intipunku/frankenbote/commit/8a437d766f204c14c61124b18571a9d4b1268a6c)) - kura_andi
 - **(selector)** Added external priority config #11 (#19) - ([eaa7b15](http://192.168.2.134:3000/intipunku/frankenbote/commit/eaa7b155a4f8bf5399d8de0659555ff7e8807d1d)) - kura_andi
-- **(summarizer)** Implement generation of longer wrap-ups for lead articles and add body fetching functionality #3 - ([2b69587](http://192.168.2.134:3000/intipunku/frankenbote/commit/2b69587d94f137b26be5e4eaa471967f90777aa3)) - kura_andi
+- **(summarizer)** Implement generation of longer wrap-ups for lead articles and add body fetching functionality #3 (#26) - ([d0ca734](http://192.168.2.134:3000/intipunku/frankenbote/commit/d0ca7341768360648b3b11b4a0295d0d0375b1b8)) - kura_andi
 - **(summarizer)** Add summarizer LLM configuration and loading functionality [no ci] (#25) - ([59c4daa](http://192.168.2.134:3000/intipunku/frankenbote/commit/59c4daa1de5bed141a9f4a907ba856ccd05774f2)) - kura_andi
 - **(summarizer)** Add summarizer LLM configuration and loading functionality (#24) - ([ea2f336](http://192.168.2.134:3000/intipunku/frankenbote/commit/ea2f336275f642db501c331accec3fd5802f554e)) - kura_andi
 
