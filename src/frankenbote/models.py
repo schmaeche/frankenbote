@@ -72,6 +72,7 @@ class CuratedArticle(BaseModel):
     rationale: str = Field(..., max_length=300)
     is_lead: bool = False
     ai_summary: str | None = None
+    wrap_up: str | None = None
 
 
 class CuratorDecision(BaseModel):

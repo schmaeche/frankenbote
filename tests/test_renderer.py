@@ -11,6 +11,7 @@ from frankenbote.renderer import (
     _index_entry,
     _list_recent_editions,
     _prune_old_html,
+    _split_paragraphs,
     render_all,
 )
 from frankenbote.models import Edition, EditionSection, EditionStats
@@ -39,6 +40,28 @@ def _make_edition(edition_date: str = "2026-05-03", selected: int = 5) -> Editio
             by_section={"politik_verwaltung": selected},
         ),
     )
+
+
+# ── _split_paragraphs ────────────────────────────────────────────────────────
+
+class TestSplitParagraphs:
+    def test_splits_on_blank_line(self):
+        assert _split_paragraphs("Para one.\n\nPara two.") == ["Para one.", "Para two."]
+
+    def test_single_paragraph(self):
+        assert _split_paragraphs("Just one paragraph.") == ["Just one paragraph."]
+
+    def test_collapses_multiple_blank_lines(self):
+        assert _split_paragraphs("A.\n\n\n\nB.") == ["A.", "B."]
+
+    def test_handles_windows_newlines(self):
+        assert _split_paragraphs("A.\r\n\r\nB.") == ["A.", "B."]
+
+    def test_strips_surrounding_whitespace(self):
+        assert _split_paragraphs("  \n\nMiddle.\n\n  ") == ["Middle."]
+
+    def test_empty_string_returns_empty_list(self):
+        assert _split_paragraphs("") == []
 
 
 # ── _index_entry ─────────────────────────────────────────────────────────────

@@ -43,7 +43,11 @@
                 </a>
             </h3>
 
-            {% if item.ai_summary %}
+            {% if item.wrap_up %}
+            {% for paragraph in item.wrap_up | paragraphs %}
+            <p class="article__summary">{{ paragraph }}</p>
+            {% endfor %}
+            {% elif item.ai_summary %}
             <p class="article__summary">{{ item.ai_summary }}</p>
             {% elif item.article.summary %}
             <p class="article__summary">{{ item.article.summary | safe }}</p>

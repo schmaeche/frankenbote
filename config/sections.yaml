@@ -23,8 +23,10 @@ summarizer:
   # model: claude-sonnet-4-6
   model: claude-haiku-4-5-20251001   # cheaper/faster for summarization
 
-curator:
-  model: claude-sonnet-4-6           # more capable for curation decisions
+  # Optional: model for lead-article wrap-ups (longer, multi-paragraph
+  # digests). Unset = reuse `model` above. Override only if wrap-ups need
+  # a different model than the short summaries.
+  # wrap_up_model: claude-sonnet-4-6
 
 
 curator:

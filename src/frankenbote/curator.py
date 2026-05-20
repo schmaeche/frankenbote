@@ -25,6 +25,7 @@ from pathlib import Path
 
 import anthropic
 import click
+import httpx
 import yaml
 from pydantic import BaseModel, ValidationError
 
@@ -280,9 +281,16 @@ def curate(  # pragma: no cover
             f"\nCurating {len(candidates)} candidates (attempt {attempt})… "
             f"(tool-use API call, may take 3-7 minutes)"
         )
-        tool_input, stop_reason, raw_msg = _call_llm(
-            client, config.model, user_prompt, max_output_tokens, tool
-        )
+        try:
+            tool_input, stop_reason, raw_msg = _call_llm(
+                client, config.model, user_prompt, max_output_tokens, tool
+            )
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError, httpx.RemoteProtocolError) as exc:
+            last_error = f"attempt {attempt}: network error: {exc}"
+            click.echo(f"\n  Network error on attempt {attempt}: {exc}")
+            if attempt == 2:
+                raise RuntimeError(f"Curator failed twice due to network errors. {last_error}") from exc
+            continue
 
         if stop_reason != "tool_use":
             if stop_reason == "max_tokens":

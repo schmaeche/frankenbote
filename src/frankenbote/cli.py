@@ -24,7 +24,11 @@ from frankenbote.storage import (
 )
 from frankenbote.curator import load_curator_config, curate
 from frankenbote.renderer import render_all
-from frankenbote.summarizer import load_summarizer_config, summarize_edition
+from frankenbote.summarizer import (
+    generate_wrap_ups,
+    load_summarizer_config,
+    summarize_edition,
+)
 from frankenbote.publisher import load_publisher_config_from_env, publish
 
 
@@ -114,12 +118,22 @@ def fetch(config: Path) -> None:
     is_flag=True,
     help="Stop after the filter step (don't call the LLM). Useful for dev.",
 )
+@click.option(
+    "--wrap-up",
+    "wrap_up",
+    is_flag=True,
+    help=(
+        "Generate longer wrap-ups for lead articles. Off by default — "
+        "wrapping up source texts may raise legal concerns."
+    ),
+)
 def pipeline(
     sources_path: Path,
     filter_path: Path,
     sections_path: Path,
     size: int,
     no_curate: bool,
+    wrap_up: bool,
 ) -> None:
     """Run the full pipeline: fetch → filter → curate → select → summarize → render."""
     try:
@@ -204,6 +218,23 @@ def pipeline(
     )
     total = sum(len(s.articles) for s in edition.sections)
     click.echo(f"  → {with_summary}/{total} summaries written")
+
+    # 5b. Wrap-ups for lead articles (opt-in via --wrap-up)
+    if wrap_up:
+        try:
+            edition = generate_wrap_ups(
+                edition, model=summarizer_cfg.wrap_up_model or summarizer_cfg.model
+            )
+        except RuntimeError as e:
+            click.echo(f"❌ Wrap-up generation failed: {e}", err=True)
+            sys.exit(1)
+        save_edition(edition, edition_date)
+        with_wrap_up = sum(
+            1 for s in edition.sections for a in s.articles if a.wrap_up
+        )
+        click.echo(f"  → {with_wrap_up} wrap-up(s) written")
+    else:
+        click.echo("  → Skipped wrap-ups (enable with --wrap-up)")
 
     # 6. Render
     stats = render_all()
@@ -414,6 +445,56 @@ def summarize_cmd(edition_date, sections_path: Path) -> None:
     )
     click.echo(f"\nSummarized: {with_summary}/{total} articles "
                f"({total - with_summary} returned null)")
+
+    out_path = save_edition(edition, edition_date)
+    click.echo(f"  → Updated {out_path}")
+
+
+@main.command(name="wrap-up")
+@click.option(
+    "--edition-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    required=True,
+    help="Edition date (YYYY-MM-DD) of the edition JSON to generate wrap-ups for.",
+)
+@click.option(
+    "--sections-config",
+    "sections_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/sections.yaml",
+    show_default=True,
+)
+def wrap_up_cmd(edition_date, sections_path: Path) -> None:
+    """Generate longer wrap-ups for lead articles in a saved edition JSON.
+
+    Runs only the wrap-up LLM call — useful for iterating on that step
+    without re-running the summarizer or the rest of the pipeline.
+    """
+    try:
+        summarizer_cfg = load_summarizer_config(sections_path)
+    except ValueError as e:
+        click.echo(f"❌ Failed to load sections config: {e}", err=True)
+        sys.exit(1)
+
+    try:
+        edition = load_edition(edition_date)
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        click.echo("    Run `frankenbote pipeline` first.", err=True)
+        sys.exit(1)
+
+    try:
+        edition = generate_wrap_ups(
+            edition, model=summarizer_cfg.wrap_up_model or summarizer_cfg.model
+        )
+    except RuntimeError as e:
+        click.echo(f"❌ Wrap-up generation failed: {e}", err=True)
+        sys.exit(1)
+
+    with_wrap_up = sum(
+        1 for s in edition.sections for a in s.articles if a.wrap_up
+    )
+    click.echo(f"\nWrap-ups written: {with_wrap_up}")
 
     out_path = save_edition(edition, edition_date)
     click.echo(f"  → Updated {out_path}")

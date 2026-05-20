@@ -6,11 +6,14 @@ import pytest
 
 from frankenbote.summarizer import (
     SummarizerConfig,
+    _WrapUpResponse,
     _build_user_prompt,
+    _build_wrap_up_prompt,
     _normalize_tool_input,
+    _select_body,
     load_summarizer_config,
 )
-from tests.conftest import make_curated
+from tests.conftest import make_article, make_curated
 
 
 # ── _normalize_tool_input ────────────────────────────────────────────────────
@@ -100,6 +103,16 @@ class TestSummarizerConfig:
         with pytest.raises(Exception):
             SummarizerConfig()
 
+    def test_wrap_up_model_defaults_to_none(self):
+        cfg = SummarizerConfig(model="claude-haiku-4-5")
+        assert cfg.wrap_up_model is None
+
+    def test_wrap_up_model_accepted(self):
+        cfg = SummarizerConfig(
+            model="claude-haiku-4-5", wrap_up_model="claude-sonnet-4-6"
+        )
+        assert cfg.wrap_up_model == "claude-sonnet-4-6"
+
 
 # ── load_summarizer_config ───────────────────────────────────────────────────
 
@@ -131,3 +144,77 @@ class TestLoadSummarizerConfig:
         cfg_file.write_text("summarizer:\n  model: claude-opus-4-7\n", encoding="utf-8")
         cfg = load_summarizer_config(str(cfg_file))
         assert cfg.model == "claude-opus-4-7"
+
+    def test_loads_wrap_up_model_when_present(self, tmp_path):
+        cfg_file = tmp_path / "sections.yaml"
+        cfg_file.write_text(
+            "summarizer:\n  model: claude-haiku-4-5\n"
+            "  wrap_up_model: claude-sonnet-4-6\n",
+            encoding="utf-8",
+        )
+        cfg = load_summarizer_config(cfg_file)
+        assert cfg.wrap_up_model == "claude-sonnet-4-6"
+
+
+# ── _select_body ─────────────────────────────────────────────────────────────
+
+class TestSelectBody:
+    def test_prefers_fetched_body(self):
+        art = make_curated(article=make_article(summary="Feed snippet."))
+        assert _select_body(art, "Full fetched article text.") == "Full fetched article text."
+
+    def test_falls_back_to_feed_snippet_when_fetch_none(self):
+        art = make_curated(article=make_article(summary="Feed snippet text."))
+        assert _select_body(art, None) == "Feed snippet text."
+
+    def test_falls_back_when_fetched_is_empty(self):
+        art = make_curated(article=make_article(summary="Feed snippet text."))
+        assert _select_body(art, "") == "Feed snippet text."
+
+    def test_falls_back_when_fetched_is_whitespace(self):
+        art = make_curated(article=make_article(summary="Feed snippet text."))
+        assert _select_body(art, "   \n  ") == "Feed snippet text."
+
+    def test_returns_none_when_both_empty(self):
+        art = make_curated(article=make_article(summary=""))
+        assert _select_body(art, None) is None
+
+    def test_returns_none_when_both_whitespace(self):
+        art = make_curated(article=make_article(summary="   "))
+        assert _select_body(art, "  ") is None
+
+
+# ── _build_wrap_up_prompt ────────────────────────────────────────────────────
+
+class TestBuildWrapUpPrompt:
+    def test_contains_title(self):
+        art = make_curated(article=make_article(title="Unique Headline XYZ"))
+        prompt = _build_wrap_up_prompt(art, "Body text here.")
+        assert "Unique Headline XYZ" in prompt
+
+    def test_contains_body(self):
+        prompt = _build_wrap_up_prompt(make_curated(), "Distinctive body content 12345.")
+        assert "Distinctive body content 12345." in prompt
+
+    def test_contains_source_name(self):
+        art = make_curated(article=make_article(source_name="Frankenpost"))
+        prompt = _build_wrap_up_prompt(art, "Body.")
+        assert "Frankenpost" in prompt
+
+    def test_mentions_the_tool(self):
+        prompt = _build_wrap_up_prompt(make_curated(), "Body.")
+        assert "submit_wrap_up" in prompt
+
+
+# ── _WrapUpResponse ──────────────────────────────────────────────────────────
+
+class TestWrapUpResponse:
+    def test_accepts_string(self):
+        assert _WrapUpResponse(wrap_up="Some text").wrap_up == "Some text"
+
+    def test_accepts_null(self):
+        assert _WrapUpResponse(wrap_up=None).wrap_up is None
+
+    def test_missing_field_raises(self):
+        with pytest.raises(Exception):
+            _WrapUpResponse()

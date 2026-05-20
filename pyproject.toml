@@ -10,6 +10,7 @@ authors = [
 dependencies = [
     # Pipeline core
     "feedparser>=6.0.11",       # RSS/Atom feed parsing
+    "trafilatura>=2.0",         # Article body extraction from HTML pages
     "httpx>=0.28.0",            # Modern HTTP client
     "pyyaml>=6.0.2",            # YAML config files
     "python-dotenv>=1.0.1",     # Load .env into environment

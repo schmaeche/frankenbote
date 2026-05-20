@@ -13,8 +13,9 @@ The pipeline runs in sequential stages:
 3. **Curate** — sends candidates to Claude, which assigns sections and priority scores (P1–P4), dropping low-relevance items
 4. **Select** — assembles the final edition respecting priority quotas and target size
 5. **Summarize** — calls Claude again to write a short AI summary for each article
-6. **Render** — generates static HTML from Jinja2 templates into `output/`
-7. **Publish** — uploads `output/` to a remote web server via SFTP
+6. **Wrap-up** *(opt-in)* — generates a longer, multi-paragraph wrap-up for the lead article of each section
+7. **Render** — generates static HTML from Jinja2 templates into `output/`
+8. **Publish** — uploads `output/` to a remote web server via SFTP
 
 ---
 
@@ -66,7 +67,7 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 
 - `config/sources.yaml` — RSS feed list; toggle sources on/off with `enabled: true/false`
 - `config/filter.yaml` — time window and keyword filtering rules
-- `config/sections.yaml` — section definitions and AI curation model settings
+- `config/sections.yaml` — section definitions, AI curation model settings, and summarizer model settings (including an optional `wrap_up_model` for lead-article wrap-ups)
 
 ---
 
@@ -260,9 +261,10 @@ frankenbote pipeline [--sources config/sources.yaml]
                      [--sections-config config/sections.yaml]
                      [--size 25]
                      [--no-curate]
+                     [--wrap-up]
 ```
 
-Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development.
+Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development. Pass `--wrap-up` to generate longer, multi-paragraph wrap-ups for the lead article of each section (opt-in; off by default due to potential copyright concerns around reproducing source text).
 
 ### `curate`
 
@@ -275,7 +277,10 @@ Re-run the AI curation step on a previously saved candidates file without refetc
 ### `select`
 
 ```
-frankenbote select --curated-date YYYY-MM-DD [--size 25]
+frankenbote select --curated-date YYYY-MM-DD
+                   [--size 25]
+                   [--sections-config config/sections.yaml]
+                   [--sources-config config/sources.yaml]
 ```
 
 Re-run article selection on a previously curated dataset. Useful for experimenting with different edition sizes without repeating the LLM call.
@@ -284,9 +289,19 @@ Re-run article selection on a previously curated dataset. Useful for experimenti
 
 ```
 frankenbote summarize --edition-date YYYY-MM-DD
+                      [--sections-config config/sections.yaml]
 ```
 
 Re-run AI summarization on a previously saved edition JSON.
+
+### `wrap-up`
+
+```
+frankenbote wrap-up --edition-date YYYY-MM-DD
+                    [--sections-config config/sections.yaml]
+```
+
+Generate longer, multi-paragraph wrap-ups for the lead article of each section in a previously saved edition JSON. This is the standalone version of the `--wrap-up` flag on `pipeline` — useful for iterating on wrap-up output without re-running the full summarizer. Opt-in; off by default due to potential copyright concerns around reproducing source text.
 
 ### `render`
 
@@ -310,23 +325,24 @@ Upload the `output/` directory to the configured SFTP server. Requires the `SFTP
 
 ```
 frankenbote/
-├── config/           # YAML configuration (sources, filter rules, sections)
-├── src/frankenbote/  # Application source code
-│   ├── cli.py        # Click CLI entry point
-│   ├── fetcher.py    # Async RSS fetching
-│   ├── filter.py     # Time-window and keyword filtering
-│   ├── curator.py    # AI curation via Claude
-│   ├── selector.py   # Priority-based article selection
-│   ├── summarizer.py # AI summarization via Claude
-│   ├── renderer.py   # Jinja2 HTML rendering
-│   └── publisher.py  # SFTP publishing
-├── templates/        # Jinja2 HTML templates
-├── assets/           # Static CSS and icons
-├── data/             # Intermediate pipeline data (candidates, curated JSON)
-├── output/           # Final rendered HTML (git-ignored)
-├── tests/            # pytest test suite
-│   ├── conftest.py   # Shared factory functions
-│   └── fixtures/     # Static test data (sample RSS feed)
+├── config/             # YAML configuration (sources, filter rules, sections)
+├── src/frankenbote/    # Application source code
+│   ├── cli.py          # Click CLI entry point
+│   ├── body_fetcher.py # Async article text fetching
+│   ├── fetcher.py      # Async RSS fetching
+│   ├── filter.py       # Time-window and keyword filtering
+│   ├── curator.py      # AI curation via Claude
+│   ├── selector.py     # Priority-based article selection
+│   ├── summarizer.py   # AI summarization via Claude
+│   ├── renderer.py     # Jinja2 HTML rendering
+│   └── publisher.py    # SFTP publishing
+├── templates/          # Jinja2 HTML templates
+├── assets/             # Static CSS and icons
+├── data/               # Intermediate pipeline data (candidates, curated JSON)
+├── output/             # Final rendered HTML (git-ignored)
+├── tests/              # pytest test suite
+│   ├── conftest.py     # Shared factory functions
+│   └── fixtures/       # Static test data (sample RSS feed)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

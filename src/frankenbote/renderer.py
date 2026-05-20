@@ -18,6 +18,7 @@ kept indefinitely — they're the canonical source of truth.
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -92,6 +93,16 @@ def render_all(config: RenderConfig | None = None) -> dict[str, int]:
 # ---------- Internals ----------
 
 
+def _split_paragraphs(text: str) -> list[str]:
+    """Split a block of text into paragraphs on blank lines.
+
+    The wrap-up text comes from the LLM as paragraphs separated by a
+    blank line. Tolerates Windows newlines and runs of blank lines.
+    """
+    parts = re.split(r"(?:\r?\n){2,}", text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
 def _make_jinja_env(templates_dir: Path) -> Environment:
     """Build the Jinja2 environment with autoescape on."""
     env = Environment(
@@ -101,6 +112,7 @@ def _make_jinja_env(templates_dir: Path) -> Environment:
         lstrip_blocks=True,
     )
     env.filters["calendar_week"] = lambda iso_date: datetime.fromisoformat(iso_date).strftime("%V/%y")
+    env.filters["paragraphs"] = _split_paragraphs
     return env
 
 
