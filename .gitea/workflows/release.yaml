@@ -59,7 +59,7 @@ jobs:
       - name: Log in to Gitea container registry
         uses: docker/login-action@v3
         with:
-          registry: 192.168.2.134:3000
+          registry: ${{ variables.REGISTRY_URL }}
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
@@ -87,8 +87,8 @@ jobs:
           build-args: |
             SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FRANKENBOTE=${{ steps.meta.outputs.version }}
           tags: |
-            192.168.2.134:3000/intipunku/frankenbote:${{ steps.meta.outputs.version }}
-            192.168.2.134:3000/intipunku/frankenbote:latest
+            ${{ variables.REGISTRY_URL }}${{ variables.FRANKENBOTE_REPOSITORY }}:${{ steps.meta.outputs.version }} 
+            ${{ variables.REGISTRY_URL }}${{ variables.FRANKENBOTE_REPOSITORY }}:latest
 
       - name: Build Docker image (pre-release — version tag only)
         if: steps.meta.outputs.is_stable == 'false'
@@ -100,4 +100,4 @@ jobs:
           build-args: |
             SETUPTOOLS_SCM_PRETEND_VERSION_FOR_FRANKENBOTE=${{ steps.meta.outputs.version }}
           tags: |
-            192.168.2.134:3000/intipunku/frankenbote:${{ steps.meta.outputs.version }}
+            ${{ variables.REGISTRY_URL }}${{ variables.FRANKENBOTE_REPOSITORY }}:${{ steps.meta.outputs.version }}
