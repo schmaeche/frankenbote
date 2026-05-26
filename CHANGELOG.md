@@ -3,6 +3,13 @@
 Changes to frankenbote.
 
 ---
+## [0.3.0-beta1](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.2.0..v0.3.0-beta1) - 2026-05-26
+
+### Miscellaneous Chores
+
+- **(workflow)** Replace hardcoded registry URL with workflow variables #29 [no ci] - ([e55064a](http://192.168.2.134:3000/intipunku/frankenbote/commit/e55064a3249395c900b68ef5193a758f8628a289)) - kura_andi
+
+---
 ## [0.2.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.1.4-beta..v0.2.0) - 2026-05-20
 
 ### Bug Fixes
