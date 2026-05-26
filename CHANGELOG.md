@@ -3,6 +3,13 @@
 Changes to frankenbote.
 
 ---
+## [0.3.0-beta2](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0-beta1..v0.3.0-beta2) - 2026-05-26
+
+### Miscellaneous Chores
+
+- **(workflow)** Update registry variable references from 'variables' to 'vars' (#29) - ([106675d](http://192.168.2.134:3000/intipunku/frankenbote/commit/106675d3ddab854cfef0f56141efe16af834cff8)) - kura_andi
+
+---
 ## [0.3.0-beta1](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.2.0..v0.3.0-beta1) - 2026-05-26
 
 ### Miscellaneous Chores
