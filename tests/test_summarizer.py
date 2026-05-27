@@ -1,6 +1,7 @@
 """Tests for frankenbote.summarizer — pure helpers only (no API calls)."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,12 +9,29 @@ from frankenbote.summarizer import (
     SummarizerConfig,
     _WrapUpResponse,
     _build_user_prompt,
+    _build_wrap_up_batch_requests,
     _build_wrap_up_prompt,
+    _extract_summarizer_result,
+    _extract_wrap_up_results,
     _normalize_tool_input,
     _select_body,
     load_summarizer_config,
 )
 from tests.conftest import make_article, make_curated
+
+
+# ── helpers for building mock batch results ──────────────────────────────────
+
+def _make_succeeded_result(custom_id: str, tool_name: str, tool_input: dict) -> SimpleNamespace:
+    tool_block = SimpleNamespace(type="tool_use", name=tool_name, input=tool_input)
+    message = SimpleNamespace(content=[tool_block])
+    result = SimpleNamespace(type="succeeded", message=message)
+    return SimpleNamespace(custom_id=custom_id, result=result)
+
+
+def _make_failed_result(custom_id: str, result_type: str) -> SimpleNamespace:
+    result = SimpleNamespace(type=result_type)
+    return SimpleNamespace(custom_id=custom_id, result=result)
 
 
 # ── _normalize_tool_input ────────────────────────────────────────────────────
@@ -218,3 +236,157 @@ class TestWrapUpResponse:
     def test_missing_field_raises(self):
         with pytest.raises(Exception):
             _WrapUpResponse()
+
+
+# ── _extract_summarizer_result ───────────────────────────────────────────────
+
+class TestExtractSummarizerResult:
+    _TOOL_INPUT = {"summaries": [{"article_index": 0, "summary": "Ein kurzer Text."}]}
+
+    def test_succeeded_returns_tool_input_and_tool_use(self):
+        results = [_make_succeeded_result("summarizer", "submit_summaries", self._TOOL_INPUT)]
+        tool_input, stop_reason = _extract_summarizer_result(results)
+        assert stop_reason == "tool_use"
+        assert tool_input == self._TOOL_INPUT
+
+    def test_errored_returns_none_and_errored(self):
+        results = [_make_failed_result("summarizer", "errored")]
+        tool_input, stop_reason = _extract_summarizer_result(results)
+        assert tool_input is None
+        assert stop_reason == "errored"
+
+    def test_expired_returns_none_and_expired(self):
+        results = [_make_failed_result("summarizer", "expired")]
+        tool_input, stop_reason = _extract_summarizer_result(results)
+        assert tool_input is None
+        assert stop_reason == "expired"
+
+    def test_missing_custom_id_returns_no_result(self):
+        results = [_make_succeeded_result("something-else", "submit_summaries", self._TOOL_INPUT)]
+        tool_input, stop_reason = _extract_summarizer_result(results)
+        assert tool_input is None
+        assert stop_reason == "no_result"
+
+    def test_empty_iterator_returns_no_result(self):
+        tool_input, stop_reason = _extract_summarizer_result([])
+        assert tool_input is None
+        assert stop_reason == "no_result"
+
+    def test_succeeded_but_wrong_tool_block(self):
+        results = [_make_succeeded_result("summarizer", "other_tool", self._TOOL_INPUT)]
+        tool_input, stop_reason = _extract_summarizer_result(results)
+        assert tool_input is None
+        assert stop_reason == "no_tool_use_block"
+
+
+# ── _extract_wrap_up_results ─────────────────────────────────────────────────
+
+class TestExtractWrapUpResults:
+    def test_succeeded_items_mapped(self):
+        results = [
+            _make_succeeded_result("wrapup-0-0", "submit_wrap_up", {"wrap_up": "Text A."}),
+            _make_succeeded_result("wrapup-1-2", "submit_wrap_up", {"wrap_up": "Text B."}),
+        ]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping[(0, 0)] == "Text A."
+        assert mapping[(1, 2)] == "Text B."
+
+    def test_llm_null_wrap_up_stored_as_none(self):
+        results = [_make_succeeded_result("wrapup-0-0", "submit_wrap_up", {"wrap_up": None})]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping[(0, 0)] is None
+
+    def test_errored_item_mapped_to_none(self):
+        results = [_make_failed_result("wrapup-0-1", "errored")]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping[(0, 1)] is None
+
+    def test_expired_item_mapped_to_none(self):
+        results = [_make_failed_result("wrapup-2-0", "expired")]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping[(2, 0)] is None
+
+    def test_malformed_custom_id_skipped(self):
+        results = [_make_succeeded_result("wrapup-notanint-x", "submit_wrap_up", {"wrap_up": "x"})]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping == {}
+
+    def test_non_wrapup_custom_id_ignored(self):
+        results = [_make_succeeded_result("summarizer", "submit_summaries", {})]
+        mapping = _extract_wrap_up_results(results)
+        assert mapping == {}
+
+    def test_validation_error_stored_as_none(self):
+        bad_block = SimpleNamespace(type="tool_use", name="submit_wrap_up", input={"bad_field": "x"})
+        message = SimpleNamespace(content=[bad_block])
+        result_obj = SimpleNamespace(type="succeeded", message=message)
+        item = SimpleNamespace(custom_id="wrapup-0-0", result=result_obj)
+        mapping = _extract_wrap_up_results([item])
+        assert mapping[(0, 0)] is None
+
+    def test_no_tool_use_block_in_succeeded_result(self):
+        text_block = SimpleNamespace(type="text", text="some text")
+        message = SimpleNamespace(content=[text_block])
+        result_obj = SimpleNamespace(type="succeeded", message=message)
+        item = SimpleNamespace(custom_id="wrapup-0-0", result=result_obj)
+        mapping = _extract_wrap_up_results([item])
+        assert mapping[(0, 0)] is None
+
+
+# ── _build_wrap_up_batch_requests ────────────────────────────────────────────
+
+class TestBuildWrapUpBatchRequests:
+    def _make_selected(self, n: int):
+        return [
+            (s, a, make_curated(article=make_article(
+                link=f"https://example.com/{s}-{a}",
+                title=f"Article {s}-{a}",
+                summary="A feed snippet.",
+            )))
+            for s, a in [(0, 0), (0, 1), (1, 0)][:n]
+        ]
+
+    def test_custom_id_format(self):
+        selected = self._make_selected(2)
+        bodies = {item.article.link: "Body text." for _, _, item in selected}
+        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-haiku-4-5", 1200)
+        custom_ids = [r["custom_id"] for r in requests]
+        assert custom_ids == ["wrapup-0-0", "wrapup-0-1"]
+
+    def test_request_count_matches_articles_with_bodies(self):
+        selected = self._make_selected(3)
+        bodies = {item.article.link: "Body." for _, _, item in selected}
+        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-haiku-4-5", 1200)
+        assert len(requests) == 3
+
+    def test_articles_without_body_excluded(self):
+        # _select_body returns None only when both fetched body AND feed summary are absent.
+        # Give the second and third articles empty summaries so they are excluded.
+        first = (0, 0, make_curated(article=make_article(
+            link="https://example.com/0-0", summary="Feed snippet."
+        )))
+        second = (0, 1, make_curated(article=make_article(
+            link="https://example.com/0-1", summary=""
+        )))
+        third = (1, 0, make_curated(article=make_article(
+            link="https://example.com/1-0", summary=""
+        )))
+        bodies = {first[2].article.link: "Body text."}
+        requests = _build_wrap_up_batch_requests([first, second, third], bodies, "claude-haiku-4-5", 1200)
+        assert len(requests) == 1
+        assert requests[0]["custom_id"] == "wrapup-0-0"
+
+    def test_all_no_body_returns_empty(self):
+        # Articles with empty summaries and no fetched bodies → _select_body returns None.
+        selected = [
+            (0, 0, make_curated(article=make_article(link="https://example.com/0", summary=""))),
+            (0, 1, make_curated(article=make_article(link="https://example.com/1", summary=""))),
+        ]
+        requests = _build_wrap_up_batch_requests(selected, {}, "claude-haiku-4-5", 1200)
+        assert requests == []
+
+    def test_params_contain_model(self):
+        selected = self._make_selected(1)
+        bodies = {selected[0][2].article.link: "Body text."}
+        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-test-model", 1200)
+        assert requests[0]["params"]["model"] == "claude-test-model"

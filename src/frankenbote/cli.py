@@ -127,6 +127,12 @@ def fetch(config: Path) -> None:
         "wrapping up source texts may raise legal concerns."
     ),
 )
+@click.option(
+    "--batch-off",
+    "batch_off",
+    is_flag=True,
+    help="Use synchronous streaming API calls instead of the Batches API.",
+)
 def pipeline(
     sources_path: Path,
     filter_path: Path,
@@ -134,8 +140,10 @@ def pipeline(
     size: int,
     no_curate: bool,
     wrap_up: bool,
+    batch_off: bool,
 ) -> None:
     """Run the full pipeline: fetch → filter → curate → select → summarize → render."""
+    use_batch = not batch_off
     try:
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
@@ -173,7 +181,7 @@ def pipeline(
     # 3. Curate
     click.echo(f"\nCurating {s.output_count} article(s) using {curator_cfg.model}…")
     try:
-        curated = curate(result.articles, curator_cfg)
+        curated = curate(result.articles, curator_cfg, use_batch=use_batch)
     except RuntimeError as e:
         click.echo(f"❌ Curator failed: {e}", err=True)
         sys.exit(1)
@@ -208,7 +216,7 @@ def pipeline(
 
     # 5. Summarize
     try:
-        edition = summarize_edition(edition, model=summarizer_cfg.model)
+        edition = summarize_edition(edition, model=summarizer_cfg.model, use_batch=use_batch)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)
@@ -223,7 +231,9 @@ def pipeline(
     if wrap_up:
         try:
             edition = generate_wrap_ups(
-                edition, model=summarizer_cfg.wrap_up_model or summarizer_cfg.model
+                edition,
+                model=summarizer_cfg.wrap_up_model or summarizer_cfg.model,
+                use_batch=use_batch,
             )
         except RuntimeError as e:
             click.echo(f"❌ Wrap-up generation failed: {e}", err=True)
@@ -270,7 +280,13 @@ def pipeline(
     default="config/sections.yaml",
     show_default=True,
 )
-def curate_cmd(candidates_date, sections_path: Path) -> None:
+@click.option(
+    "--batch-off",
+    "batch_off",
+    is_flag=True,
+    help="Use synchronous streaming API calls instead of the Batches API.",
+)
+def curate_cmd(candidates_date, sections_path: Path, batch_off: bool) -> None:
     """Run the AI curator on a previously-saved candidates JSON file."""
     try:
         config = load_curator_config(sections_path)
@@ -289,7 +305,7 @@ def curate_cmd(candidates_date, sections_path: Path) -> None:
     click.echo("(One API call. This may take 30–90 seconds.)\n")
 
     try:
-        curated = curate(candidates, config)
+        curated = curate(candidates, config, use_batch=not batch_off)
     except RuntimeError as e:
         click.echo(f"❌ Curator failed: {e}", err=True)
         sys.exit(1)
@@ -417,7 +433,13 @@ def render_cmd() -> None:
     default="config/sections.yaml",
     show_default=True,
 )
-def summarize_cmd(edition_date, sections_path: Path) -> None:
+@click.option(
+    "--batch-off",
+    "batch_off",
+    is_flag=True,
+    help="Use synchronous streaming API calls instead of the Batches API.",
+)
+def summarize_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
     """Run the AI summarizer on a previously-saved edition JSON file."""
     try:
         summarizer_cfg = load_summarizer_config(sections_path)
@@ -433,7 +455,7 @@ def summarize_cmd(edition_date, sections_path: Path) -> None:
         sys.exit(1)
 
     try:
-        edition = summarize_edition(edition, model=summarizer_cfg.model)
+        edition = summarize_edition(edition, model=summarizer_cfg.model, use_batch=not batch_off)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)
@@ -464,7 +486,13 @@ def summarize_cmd(edition_date, sections_path: Path) -> None:
     default="config/sections.yaml",
     show_default=True,
 )
-def wrap_up_cmd(edition_date, sections_path: Path) -> None:
+@click.option(
+    "--batch-off",
+    "batch_off",
+    is_flag=True,
+    help="Use synchronous streaming API calls instead of the Batches API.",
+)
+def wrap_up_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
     """Generate longer wrap-ups for lead articles in a saved edition JSON.
 
     Runs only the wrap-up LLM call — useful for iterating on that step
@@ -485,7 +513,9 @@ def wrap_up_cmd(edition_date, sections_path: Path) -> None:
 
     try:
         edition = generate_wrap_ups(
-            edition, model=summarizer_cfg.wrap_up_model or summarizer_cfg.model
+            edition,
+            model=summarizer_cfg.wrap_up_model or summarizer_cfg.model,
+            use_batch=not batch_off,
         )
     except RuntimeError as e:
         click.echo(f"❌ Wrap-up generation failed: {e}", err=True)

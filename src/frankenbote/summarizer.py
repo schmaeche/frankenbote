@@ -20,12 +20,15 @@ only with what the feed provided.
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 
 import anthropic
 import click
 import yaml
 from pydantic import BaseModel, Field, ValidationError
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request as BatchRequest
 
 from frankenbote._debug import save_failure
 from frankenbote.body_fetcher import fetch_bodies
@@ -225,6 +228,7 @@ def summarize_edition(  # pragma: no cover
     edition: Edition,
     model: str,
     api_key: str | None = None,
+    use_batch: bool = True,
 ) -> Edition:
     """Run the summarizer on every article in the edition.
 
@@ -251,9 +255,12 @@ def summarize_edition(  # pragma: no cover
     last_error: str | None = None
     response: _SummarizerResponse | None = None
 
+    _llm_call = _call_llm_batch if use_batch else _call_llm
+    call_desc = "Batches API, polling until done" if use_batch else "tool-use API call, ~60-120 seconds"
+
     for attempt in (1, 2):
-        click.echo(f"\nSummarizing {len(flat)} articles… (tool-use API call, ~60-120 seconds)")
-        tool_input, stop_reason, raw_msg = _call_llm(
+        click.echo(f"\nSummarizing {len(flat)} articles… ({call_desc})")
+        tool_input, stop_reason, raw_msg = _llm_call(
             client, model, user_prompt, max_output_tokens
         )
 
@@ -389,6 +396,190 @@ class _WrapUpResponse(BaseModel):
     wrap_up: str | None
 
 
+# -------- Batch constants --------
+
+_BATCH_POLL_INTERVAL = 30   # seconds between status checks
+_BATCH_TIMEOUT = 3_600      # 60-minute hard limit
+
+
+# -------- Batch helpers --------
+
+
+def _poll_batch_until_done(  # pragma: no cover
+    client: anthropic.Anthropic,
+    batch_id: str,
+):
+    """Poll until the batch reaches processing_status == 'ended'.
+
+    On timeout, cancels the batch (best-effort) then raises RuntimeError so
+    the caller's retry loop can handle it.
+    """
+    deadline = time.monotonic() + _BATCH_TIMEOUT
+    while True:
+        batch = client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            return batch
+        if time.monotonic() >= deadline:
+            click.echo()
+            click.echo(f"  Timeout — cancelling batch {batch_id}…")
+            try:
+                client.messages.batches.cancel(batch_id)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Batch {batch_id} timed out after {_BATCH_TIMEOUT}s"
+            )
+        click.echo(".", nl=False)
+        time.sleep(min(_BATCH_POLL_INTERVAL, max(1, deadline - time.monotonic())))
+
+
+def _extract_summarizer_result(
+    results_iter,
+) -> tuple[dict | None, str]:
+    """Extract (tool_input, stop_reason) from a batch results iterator.
+
+    Looks for the single item with custom_id == "summarizer". Pure function,
+    no API calls — designed to be unit-tested without mocking the Anthropic client.
+    """
+    for result in results_iter:
+        if result.custom_id != "summarizer":
+            continue
+        if result.result.type != "succeeded":
+            return None, result.result.type
+        msg = result.result.message
+        for block in msg.content:
+            if getattr(block, "type", None) == "tool_use" and block.name == "submit_summaries":
+                return block.input, "tool_use"
+        return None, "no_tool_use_block"
+    return None, "no_result"
+
+
+def _call_llm_batch(  # pragma: no cover
+    client: anthropic.Anthropic,
+    model: str,
+    user_prompt: str,
+    max_output_tokens: int,
+) -> tuple[dict | None, str, object]:
+    """Submit a single-request batch and return (tool_input, stop_reason, raw_batch).
+
+    Matches _call_llm()'s return shape so the retry loop in summarize_edition() is unchanged.
+    Polling timeout is caught and returned as stop_reason "batch_timeout".
+    """
+    batch = client.messages.batches.create(
+        requests=[
+            BatchRequest(
+                custom_id="summarizer",
+                params=MessageCreateParamsNonStreaming(
+                    model=model,
+                    max_tokens=max_output_tokens,
+                    system=_SYSTEM_PROMPT,
+                    tools=[_SUMMARIZE_TOOL],
+                    tool_choice={"type": "tool", "name": "submit_summaries"},
+                    messages=[{"role": "user", "content": user_prompt}],
+                ),
+            )
+        ]
+    )
+    click.echo(f"\n  Batch {batch.id} submitted, polling", nl=False)
+    try:
+        batch = _poll_batch_until_done(client, batch.id)
+    except RuntimeError:
+        return None, "batch_timeout", None
+    click.echo()
+    tool_input, stop_reason = _extract_summarizer_result(
+        client.messages.batches.results(batch.id)
+    )
+    return tool_input, stop_reason, batch
+
+
+def _build_wrap_up_batch_requests(
+    selected: list[tuple[int, int, "CuratedArticle"]],
+    bodies: dict[str, str | None],
+    model: str,
+    max_output_tokens: int,
+) -> list[BatchRequest]:
+    """Build one BatchRequest per lead article that has a usable body.
+
+    Articles with no usable body are silently skipped — the caller logs them.
+    Pure function, no API calls — designed to be unit-tested.
+    """
+    requests = []
+    for s_idx, a_idx, item in selected:
+        fetched = bodies.get(item.article.link)
+        body = _select_body(item, fetched)
+        if body is None:
+            continue
+        requests.append(
+            BatchRequest(
+                custom_id=f"wrapup-{s_idx}-{a_idx}",
+                params=MessageCreateParamsNonStreaming(
+                    model=model,
+                    max_tokens=max_output_tokens,
+                    system=_WRAP_UP_SYSTEM_PROMPT,
+                    tools=[_WRAP_UP_TOOL],
+                    tool_choice={"type": "tool", "name": "submit_wrap_up"},
+                    messages=[{"role": "user", "content": _build_wrap_up_prompt(item, body)}],
+                ),
+            )
+        )
+    return requests
+
+
+def _extract_wrap_up_results(
+    results_iter,
+) -> dict[tuple[int, int], str | None]:
+    """Map batch results back to (section_index, article_index) keys.
+
+    On success, stores the wrap_up string (or None if the LLM returned null).
+    On any per-item error, logs a warning and stores None. Pure function,
+    no API calls — designed to be unit-tested.
+    """
+    mapping: dict[tuple[int, int], str | None] = {}
+    for result in results_iter:
+        cid = result.custom_id
+        if not cid.startswith("wrapup-"):
+            continue
+        try:
+            _, s_str, a_str = cid.split("-", 2)
+            key = (int(s_str), int(a_str))
+        except ValueError:
+            click.echo(f"  ⚠ Malformed wrap-up custom_id: {cid!r}", err=True)
+            continue
+        if result.result.type != "succeeded":
+            click.echo(f"  ⚠ Batch item {cid} {result.result.type}", err=True)
+            mapping[key] = None
+            continue
+        msg = result.result.message
+        for block in msg.content:
+            if getattr(block, "type", None) == "tool_use" and block.name == "submit_wrap_up":
+                try:
+                    mapping[key] = _WrapUpResponse(**block.input).wrap_up
+                except ValidationError as e:
+                    click.echo(f"  ⚠ Validation error for {cid}: {e}", err=True)
+                    mapping[key] = None
+                break
+        else:
+            mapping[key] = None
+    return mapping
+
+
+def _generate_wrap_ups_batch(  # pragma: no cover
+    client: anthropic.Anthropic,
+    model: str,
+    batch_requests: list[BatchRequest],
+) -> dict[tuple[int, int], str | None]:
+    """Submit wrap-up batch requests, poll, and extract results.
+
+    Raises RuntimeError on submission error or polling timeout so the caller's
+    retry loop can handle it.
+    """
+    batch = client.messages.batches.create(requests=batch_requests)
+    click.echo(f"\n  Batch {batch.id} submitted, polling", nl=False)
+    batch = _poll_batch_until_done(client, batch.id)
+    click.echo()
+    return _extract_wrap_up_results(client.messages.batches.results(batch.id))
+
+
 # -------- Wrap-up helpers (pure) --------
 
 
@@ -496,6 +687,7 @@ def generate_wrap_ups(  # pragma: no cover
     edition: Edition,
     model: str,
     api_key: str | None = None,
+    use_batch: bool = True,
 ) -> Edition:
     """Generate a longer wrap-up for selected articles in the edition.
 
@@ -504,8 +696,10 @@ def generate_wrap_ups(  # pragma: no cover
     snippet when the fetch fails) and Claude writes a 2-3 paragraph
     German digest into the article's wrap_up field.
 
-    Per-article failures are logged but never abort the run — the
-    article keeps wrap_up=None and the renderer falls back to ai_summary.
+    In batch mode (default), all wrap-ups are submitted as one Batches API
+    call. Per-item failures are logged but do not abort the run.
+    In non-batch mode, each article is processed with its own API call;
+    per-article failures are silently logged and do not abort the run.
     """
     api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -528,20 +722,54 @@ def generate_wrap_ups(  # pragma: no cover
     click.echo(f"\nFetching {len(selected)} article bodies for wrap-ups…")
     bodies = asyncio.run(fetch_bodies([item.article.link for _, _, item in selected]))
 
-    click.echo(f"Generating {len(selected)} wrap-ups… (one tool-use call each)")
-    results: dict[tuple[int, int], str] = {}
-    for s_idx, a_idx, item in selected:
-        fetched = bodies.get(item.article.link)
-        body = _select_body(item, fetched)
-        if body is None:
-            click.echo(f"  ⚠ Skipping {item.article.title[:60]}: no usable text")
-            continue
+    results: dict[tuple[int, int], str | None]
 
-        source_label = "fetched body" if fetched else "feed snippet (fetch failed)"
-        click.echo(f"  • {item.article.title[:60]} ({source_label})")
-        wrap_up = _generate_one_wrap_up(client, model, item, body)
-        if wrap_up:
-            results[(s_idx, a_idx)] = wrap_up
+    if use_batch:
+        # Log per-article body availability before submitting.
+        for _, _, item in selected:
+            fetched = bodies.get(item.article.link)
+            if _select_body(item, fetched) is None:
+                click.echo(f"  ⚠ Skipping {item.article.title[:60]}: no usable text")
+            else:
+                src = "fetched body" if fetched else "feed snippet (fetch failed)"
+                click.echo(f"  • {item.article.title[:60]} ({src})")
+
+        batch_requests = _build_wrap_up_batch_requests(selected, bodies, model, max_output_tokens=1200)
+        if not batch_requests:
+            return edition
+
+        results = {}
+        last_error: str | None = None
+        for attempt in (1, 2):
+            click.echo(
+                f"\nGenerating {len(batch_requests)} wrap-up(s) via Batches API "
+                f"(attempt {attempt})…"
+            )
+            try:
+                results = _generate_wrap_ups_batch(client, model, batch_requests)
+                break
+            except (anthropic.APIConnectionError, anthropic.APITimeoutError, RuntimeError) as exc:
+                last_error = str(exc)
+                click.echo(f"\n  Error on attempt {attempt}: {exc}", err=True)
+                if attempt == 2:
+                    raise RuntimeError(
+                        f"Wrap-up batch failed twice. Last error: {last_error}"
+                    ) from exc
+    else:
+        click.echo(f"Generating {len(selected)} wrap-ups… (one tool-use call each)")
+        results = {}
+        for s_idx, a_idx, item in selected:
+            fetched = bodies.get(item.article.link)
+            body = _select_body(item, fetched)
+            if body is None:
+                click.echo(f"  ⚠ Skipping {item.article.title[:60]}: no usable text")
+                continue
+
+            source_label = "fetched body" if fetched else "feed snippet (fetch failed)"
+            click.echo(f"  • {item.article.title[:60]} ({source_label})")
+            wrap_up = _generate_one_wrap_up(client, model, item, body)
+            if wrap_up:
+                results[(s_idx, a_idx)] = wrap_up
 
     # Rebuild the edition with wrap_up populated where we have one.
     new_sections = []
