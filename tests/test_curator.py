@@ -5,15 +5,62 @@ from types import SimpleNamespace
 
 import pytest
 
+import textwrap
+
 from frankenbote.curator import (
     _build_curator_tool,
     _build_user_prompt,
     _extract_curator_result,
     _merge_decisions,
     _normalize_tool_input,
+    load_curator_config,
 )
 from frankenbote.models import CuratorDecision, Priority
 from tests.conftest import make_article, make_curator_config
+
+
+# ── load_curator_config ───────────────────────────────────────────────────────
+
+class TestLoadCuratorConfig:
+    def test_file_not_found_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Sections config not found"):
+            load_curator_config(tmp_path / "missing.yaml")
+
+    def test_yaml_not_a_dict_raises(self, tmp_path):
+        cfg = tmp_path / "bad.yaml"
+        cfg.write_text("- just\n- a\n- list\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="must contain a top-level 'curator:' key"):
+            load_curator_config(cfg)
+
+    def test_missing_curator_key_raises(self, tmp_path):
+        cfg = tmp_path / "bad.yaml"
+        cfg.write_text("other_key: something\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="must contain a top-level 'curator:' key"):
+            load_curator_config(cfg)
+
+    def test_valid_yaml_returns_curator_config(self, tmp_path):
+        cfg = tmp_path / "sections.yaml"
+        cfg.write_text(
+            textwrap.dedent("""\
+                curator:
+                  model: claude-sonnet-4-6
+                  guidance: Test guidance.
+                  priorities:
+                    - id: P1
+                      label: Lokal
+                      description: Local news
+                  sections:
+                    - id: kultur
+                      display_name: Kultur
+                      description: Culture events
+            """),
+            encoding="utf-8",
+        )
+        result = load_curator_config(cfg)
+        assert result.model == "claude-sonnet-4-6"
+        assert result.guidance == "Test guidance."
+        assert len(result.priorities) == 1
+        assert len(result.sections) == 1
 
 
 # ── helpers for building mock batch results ──────────────────────────────────
