@@ -21,6 +21,7 @@ the selector's job.
 
 import json
 import os
+import time
 from pathlib import Path
 
 import anthropic
@@ -28,6 +29,8 @@ import click
 import httpx
 import yaml
 from pydantic import BaseModel, ValidationError
+from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
+from anthropic.types.messages.batch_create_params import Request as BatchRequest
 
 from frankenbote._debug import save_failure
 from frankenbote.models import (
@@ -72,6 +75,11 @@ def load_curator_config(path: Path | str = "config/sections.yaml") -> CuratorCon
     if not isinstance(raw, dict) or "curator" not in raw:
         raise ValueError(f"{path} must contain a top-level 'curator:' key")
     return CuratorConfig(**raw["curator"])
+
+# -------- Batch constants --------
+
+_BATCH_POLL_INTERVAL = 30   # seconds between status checks
+_BATCH_TIMEOUT = 3_600      # 60-minute hard limit
 
 # -------- JSON helpers --------
 
@@ -245,6 +253,98 @@ def _call_llm(  # pragma: no cover
     return None, (msg.stop_reason or "unknown"), msg
 
 
+# -------- Batch helpers --------
+
+
+def _poll_batch_until_done(  # pragma: no cover
+    client: anthropic.Anthropic,
+    batch_id: str,
+):
+    """Poll until the batch reaches processing_status == 'ended'.
+
+    On timeout, cancels the batch (best-effort) then raises RuntimeError so
+    the caller's retry loop can handle it.
+    """
+    deadline = time.monotonic() + _BATCH_TIMEOUT
+    while True:
+        batch = client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            return batch
+        if time.monotonic() >= deadline:
+            click.echo()
+            click.echo(f"  Timeout — cancelling batch {batch_id}…")
+            try:
+                client.messages.batches.cancel(batch_id)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Batch {batch_id} timed out after {_BATCH_TIMEOUT}s"
+            )
+        click.echo(".", nl=False)
+        time.sleep(min(_BATCH_POLL_INTERVAL, max(1, deadline - time.monotonic())))
+
+
+def _extract_curator_result(
+    results_iter,
+) -> tuple[dict | None, str]:
+    """Extract (tool_input, stop_reason) from a batch results iterator.
+
+    Looks for the single item with custom_id == "curator". Pure function,
+    no API calls — designed to be unit-tested without mocking the Anthropic client.
+    """
+    for result in results_iter:
+        if result.custom_id != "curator":
+            continue
+        if result.result.type != "succeeded":
+            return None, result.result.type
+        msg = result.result.message
+        for block in msg.content:
+            if getattr(block, "type", None) == "tool_use" and block.name == "submit_decisions":
+                return block.input, "tool_use"
+        return None, "no_tool_use_block"
+    return None, "no_result"
+
+
+def _call_llm_batch(  # pragma: no cover
+    client: anthropic.Anthropic,
+    model: str,
+    user_prompt: str,
+    max_output_tokens: int,
+    tool: dict,
+) -> tuple[dict | None, str, object]:
+    """Submit a single-request batch and return (tool_input, stop_reason, raw_batch).
+
+    Matches _call_llm()'s return shape so the retry loop in curate() is unchanged.
+    Submission errors (APIConnectionError etc.) propagate to the caller's except block.
+    Polling timeout is caught and returned as stop_reason "batch_timeout".
+    """
+    batch = client.messages.batches.create(
+        requests=[
+            BatchRequest(
+                custom_id="curator",
+                params=MessageCreateParamsNonStreaming(
+                    model=model,
+                    max_tokens=max_output_tokens,
+                    system=_SYSTEM_PROMPT,
+                    tools=[tool],
+                    tool_choice={"type": "tool", "name": "submit_decisions"},
+                    messages=[{"role": "user", "content": user_prompt}],
+                ),
+            )
+        ]
+    )
+    click.echo(f"\n  Batch {batch.id} submitted, polling", nl=False)
+    try:
+        batch = _poll_batch_until_done(client, batch.id)
+    except RuntimeError:
+        return None, "batch_timeout", None
+    click.echo()
+    tool_input, stop_reason = _extract_curator_result(
+        client.messages.batches.results(batch.id)
+    )
+    return tool_input, stop_reason, batch
+
+
 # -------- Public API --------
 
 
@@ -252,6 +352,7 @@ def curate(  # pragma: no cover
     candidates: list[Article],
     config: CuratorConfig,
     api_key: str | None = None,
+    use_batch: bool = True,
 ) -> list[CuratedArticle]:
     """Classify candidates with the LLM via tool use. One retry on failure.
 
@@ -276,13 +377,16 @@ def curate(  # pragma: no cover
     response: CuratorResponse | None = None
     last_error: str | None = None
 
+    _llm_call = _call_llm_batch if use_batch else _call_llm
+    call_desc = "Batches API, polling until done" if use_batch else "streaming API call, may take 3-7 minutes"
+
     for attempt in (1, 2):
         click.echo(
             f"\nCurating {len(candidates)} candidates (attempt {attempt})… "
-            f"(tool-use API call, may take 3-7 minutes)"
+            f"({call_desc})"
         )
         try:
-            tool_input, stop_reason, raw_msg = _call_llm(
+            tool_input, stop_reason, raw_msg = _llm_call(
                 client, config.model, user_prompt, max_output_tokens, tool
             )
         except (anthropic.APIConnectionError, anthropic.APITimeoutError, httpx.RemoteProtocolError) as exc:

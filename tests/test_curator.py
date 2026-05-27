@@ -1,12 +1,35 @@
 """Tests for frankenbote.curator — pure helpers only (no API calls)."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from frankenbote.curator import _build_curator_tool, _build_user_prompt, _merge_decisions, _normalize_tool_input
+from frankenbote.curator import (
+    _build_curator_tool,
+    _build_user_prompt,
+    _extract_curator_result,
+    _merge_decisions,
+    _normalize_tool_input,
+)
 from frankenbote.models import CuratorDecision, Priority
 from tests.conftest import make_article, make_curator_config
+
+
+# ── helpers for building mock batch results ──────────────────────────────────
+
+def _make_succeeded_result(custom_id: str, tool_input: dict) -> SimpleNamespace:
+    """Minimal mock of MessageBatchIndividualResponse with a succeeded tool_use."""
+    tool_block = SimpleNamespace(type="tool_use", name="submit_decisions", input=tool_input)
+    message = SimpleNamespace(content=[tool_block])
+    result = SimpleNamespace(type="succeeded", message=message)
+    return SimpleNamespace(custom_id=custom_id, result=result)
+
+
+def _make_failed_result(custom_id: str, result_type: str) -> SimpleNamespace:
+    """Minimal mock for errored / expired / canceled batch results."""
+    result = SimpleNamespace(type=result_type)
+    return SimpleNamespace(custom_id=custom_id, result=result)
 
 
 # ── _normalize_tool_input ────────────────────────────────────────────────────
@@ -152,3 +175,64 @@ class TestBuildCuratorTool:
             ["properties"]["section"]["enum"]
         )
         assert None in section_enum
+
+
+# ── _extract_curator_result ──────────────────────────────────────────────────
+
+class TestExtractCuratorResult:
+    _TOOL_INPUT = {"decisions": [{"article_index": 0, "section": "politik",
+                                   "priority": "P1", "relevance_score": 8.0,
+                                   "rationale": "Local story."}]}
+
+    def test_succeeded_returns_tool_input_and_tool_use(self):
+        results = [_make_succeeded_result("curator", self._TOOL_INPUT)]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert stop_reason == "tool_use"
+        assert tool_input == self._TOOL_INPUT
+
+    def test_errored_returns_none_and_errored(self):
+        results = [_make_failed_result("curator", "errored")]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert tool_input is None
+        assert stop_reason == "errored"
+
+    def test_expired_returns_none_and_expired(self):
+        results = [_make_failed_result("curator", "expired")]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert tool_input is None
+        assert stop_reason == "expired"
+
+    def test_canceled_returns_none_and_canceled(self):
+        results = [_make_failed_result("curator", "canceled")]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert tool_input is None
+        assert stop_reason == "canceled"
+
+    def test_missing_custom_id_returns_no_result(self):
+        results = [_make_succeeded_result("something-else", self._TOOL_INPUT)]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert tool_input is None
+        assert stop_reason == "no_result"
+
+    def test_empty_iterator_returns_no_result(self):
+        tool_input, stop_reason = _extract_curator_result([])
+        assert tool_input is None
+        assert stop_reason == "no_result"
+
+    def test_succeeded_but_no_matching_tool_block(self):
+        wrong_block = SimpleNamespace(type="tool_use", name="other_tool", input={})
+        message = SimpleNamespace(content=[wrong_block])
+        result = SimpleNamespace(type="succeeded", message=message)
+        item = SimpleNamespace(custom_id="curator", result=result)
+        tool_input, stop_reason = _extract_curator_result([item])
+        assert tool_input is None
+        assert stop_reason == "no_tool_use_block"
+
+    def test_other_custom_ids_before_curator_are_skipped(self):
+        results = [
+            _make_failed_result("unrelated", "errored"),
+            _make_succeeded_result("curator", self._TOOL_INPUT),
+        ]
+        tool_input, stop_reason = _extract_curator_result(results)
+        assert stop_reason == "tool_use"
+        assert tool_input == self._TOOL_INPUT
