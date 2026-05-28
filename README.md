@@ -262,17 +262,20 @@ frankenbote pipeline [--sources config/sources.yaml]
                      [--size 25]
                      [--no-curate]
                      [--wrap-up]
+                     [--batch-off]
 ```
 
-Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development. Pass `--wrap-up` to generate longer, multi-paragraph wrap-ups for the lead article of each section (opt-in; off by default due to potential copyright concerns around reproducing source text).
+Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development. Pass `--wrap-up` to generate longer, multi-paragraph wrap-ups for the lead article of each section (opt-in; off by default due to potential copyright concerns around reproducing source text). Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
 
 ### `curate`
 
 ```
 frankenbote curate --candidates-date YYYY-MM-DD
+                   [--sections-config config/sections.yaml]
+                   [--batch-off]
 ```
 
-Re-run the AI curation step on a previously saved candidates file without refetching. The date must match a file in `data/`.
+Re-run the AI curation step on a previously saved candidates file without refetching. The date must match a file in `data/`. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
 
 ### `select`
 
@@ -290,18 +293,20 @@ Re-run article selection on a previously curated dataset. Useful for experimenti
 ```
 frankenbote summarize --edition-date YYYY-MM-DD
                       [--sections-config config/sections.yaml]
+                      [--batch-off]
 ```
 
-Re-run AI summarization on a previously saved edition JSON.
+Re-run AI summarization on a previously saved edition JSON. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
 
 ### `wrap-up`
 
 ```
 frankenbote wrap-up --edition-date YYYY-MM-DD
                     [--sections-config config/sections.yaml]
+                    [--batch-off]
 ```
 
-Generate longer, multi-paragraph wrap-ups for the lead article of each section in a previously saved edition JSON. This is the standalone version of the `--wrap-up` flag on `pipeline` — useful for iterating on wrap-up output without re-running the full summarizer. Opt-in; off by default due to potential copyright concerns around reproducing source text.
+Generate longer, multi-paragraph wrap-ups for the lead article of each section in a previously saved edition JSON. This is the standalone version of the `--wrap-up` flag on `pipeline` — useful for iterating on wrap-up output without re-running the full summarizer. Opt-in; off by default due to potential copyright concerns around reproducing source text. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
 
 ### `render`
 
