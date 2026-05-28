@@ -3,6 +3,23 @@
 Changes to frankenbote.
 
 ---
+## [0.3.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0-beta3..v0.3.0) - 2026-05-28
+
+### Documentation
+
+- **(readme)** Add --batch-off option for synchronous API calls in pipeline commands. Documentation for #30 changes. - ([e3eb596](http://192.168.2.134:3000/intipunku/frankenbote/commit/e3eb5966a241739024ffce6d8011c4eea8aee1b9)) - kura_andi
+
+### Features
+
+- **(config)** Adjust target distribution and refine editorial guidance for curator. Fixes #17 - ([01b21e2](http://192.168.2.134:3000/intipunku/frankenbote/commit/01b21e2bc6643479cc491c540ec4a25db6db8f3a)) - kura_andi
+- **(curator)** Implement batch processing for LLM classification and add tests for result extraction, Fixes #30 - ([842ca3b](http://192.168.2.134:3000/intipunku/frankenbote/commit/842ca3b92921d2fd353178c8293dc9a60ee527d6)) - kura_andi
+- **(summarizer)** Add batch processing support for wrap-up generation and enhance tests for result extraction; Fixes #30 - ([4f2b907](http://192.168.2.134:3000/intipunku/frankenbote/commit/4f2b907998979129993f69bfb91a72a55269c2bb)) - kura_andi
+
+### Miscellaneous Chores
+
+- **(tests)** Enhance load_curator_config tests for error handling and valid YAML structure - ([a152206](http://192.168.2.134:3000/intipunku/frankenbote/commit/a152206fa77c79fafa28b24a1311d90713464aa8)) - kura_andi
+
+---
 ## [0.3.0-beta2](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0-beta1..v0.3.0-beta2) - 2026-05-26
 
 ### Miscellaneous Chores
