@@ -13,10 +13,10 @@
 selector:
   # Soft target distribution for the final edition. Must sum to ~1.0.
   targets:
-    P1: 0.50
-    P2: 0.25
-    P3: 0.15
-    P4: 0.10
+    P1: 0.45
+    P2: 0.30
+    P3: 0.20
+    P4: 0.05
 
 summarizer:
   # Model used for the summarization call. Pinned so behavior is reproducible.
@@ -94,7 +94,7 @@ curator:
       display_name: "Vermischtes"
       description: |
         Catch-all for newsworthy items that don't fit the other sections:
-        unusual incidents, weather, oddities, small police reports.
+        unusual incidents, weather, oddities.
         Use sparingly — when an article doesn't fit anywhere else.
 
   # Editorial guidance — appended verbatim to the LLM prompt. This is
@@ -104,6 +104,10 @@ curator:
     - Drop articles that are clearly Promi/Boulevard/celebrity gossip,
       unless they have local relevance (a Nürnberger making national news
       is fine; international celebrity divorces are not).
+    - Drop minor police, accident and incident reports unless they have 
+      broader significance beyond the immediate event (road closures, systemic
+      safety issues, public figures involved). A fatality alone is not
+      sufficient reason to include.
     - Drop pure paywall teasers, "Plus"/"Premium" lock-out pages, and
       empty SEO bait.
     - Drop sponsored/advertorial content even if it leaked into a feed.
@@ -125,6 +129,10 @@ curator:
     - For the relevance_score (0-10): score within the article's priority
       tier. A "10 P4" means it's the most important national/world story
       of the week; a "10 P1" means a major Nuremberg story.
+    - Cycling news about Grand Tours (Tour de France, Giro, Vuelta),
+      Monument classics, or World Championships is interest-based content,
+      not geography-based. Assign priority P2 and score by event significance
+      (Grand Tour stage win = 8-10, routine race = 3-5).
     - Brief one-sentence rationale per article.
     - Same-story deduplication: if two or more articles report the *same
       underlying news event* (same who/what/when, covered by different
