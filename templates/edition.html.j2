@@ -43,14 +43,23 @@
                 </a>
             </h3>
 
-            {% if item.wrap_up %}
-            {% for paragraph in item.wrap_up | paragraphs %}
-            <p class="article__summary">{{ paragraph }}</p>
-            {% endfor %}
-            {% elif item.ai_summary %}
-            <p class="article__summary">{{ item.ai_summary }}</p>
+            {% if item.ai_summary %}
+            <p class="article__summary">
+                <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
+                    {{ item.ai_summary }}
+                </a>
+            </p>
             {% elif item.article.summary %}
             <p class="article__summary">{{ item.article.summary | safe }}</p>
+            {% endif %}
+
+            {% if item.wrap_up %}
+            <details class="article__wrapup-details" name="wrapup">
+                <summary></summary>
+                {% for paragraph in item.wrap_up | paragraphs %}
+                <p class="article__wrapup">{{ paragraph }}</p>
+                {% endfor %}
+            </details>
             {% endif %}
 
             <div class="article__meta">

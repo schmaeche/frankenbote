@@ -204,6 +204,41 @@ main {
   color: var(--color-accent);
 }
 
+.article__wrapup-details {
+  display: flex;
+  flex-direction: column-reverse;
+  margin-bottom: var(--space-md);
+}
+
+.article__wrapup-details > summary {
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--color-accent);
+  list-style: none;
+  user-select: none;
+  margin-top: var(--space-xs);
+}
+
+.article__wrapup-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.article__wrapup-details > summary::before {
+  content: "▸ Weiterlesen ...";
+}
+
+.article__wrapup-details[open] > summary::before {
+  content: "▴ Einklappen ...";
+}
+
+.article__wrapup {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  margin-top: var(--space-sm);
+}
+
 .article__rationale-details {
   margin-top: var(--space-xs);
 }
@@ -221,12 +256,12 @@ main {
 }
 
 .article__rationale-details > summary::before {
-  content: ">";
+  content: "▸";
   display: inline-block;
 }
 
 .article__rationale-details[open] > summary::before {
-  content: "∨";
+  content: "▾";
 }
 
 .article__rationale {
