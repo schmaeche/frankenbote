@@ -508,7 +508,12 @@ def _build_wrap_up_batch_requests(
         fetched = bodies.get(item.article.link)
         body = _select_body(item, fetched)
         if body is None:
+            click.echo(f"  ⚠ Skipping {item.article.title[:60]}: no usable text")
             continue
+
+        src = "fetched body" if fetched else "feed snippet (fetch failed)"
+        click.echo(f"  • {item.article.title[:60]} ({src})")
+
         requests.append(
             BatchRequest(
                 custom_id=f"wrapup-{s_idx}-{a_idx}",
@@ -725,15 +730,6 @@ def generate_wrap_ups(  # pragma: no cover
     results: dict[tuple[int, int], str | None]
 
     if use_batch:
-        # Log per-article body availability before submitting.
-        for _, _, item in selected:
-            fetched = bodies.get(item.article.link)
-            if _select_body(item, fetched) is None:
-                click.echo(f"  ⚠ Skipping {item.article.title[:60]}: no usable text")
-            else:
-                src = "fetched body" if fetched else "feed snippet (fetch failed)"
-                click.echo(f"  • {item.article.title[:60]} ({src})")
-
         batch_requests = _build_wrap_up_batch_requests(selected, bodies, model, max_output_tokens=1200)
         if not batch_requests:
             return edition
