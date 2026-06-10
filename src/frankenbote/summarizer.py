@@ -710,13 +710,12 @@ def generate_wrap_ups(  # pragma: no cover
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-    # Selection filter — currently lead articles only. Widen this single
-    # condition to extend wrap-ups to more articles.
+    # Selection filter — uncomment is_lead to use lead articles only
     selected: list[tuple[int, int, CuratedArticle]] = [
         (s_idx, a_idx, item)
         for s_idx, section in enumerate(edition.sections)
         for a_idx, item in enumerate(section.articles)
-        if item.is_lead
+        # if item.is_lead
     ]
     if not selected:
         return edition
