@@ -102,9 +102,10 @@ def _strip_img_tags(html: str) -> str:
 def _extract_image_url(entry, description: str) -> str | None:
     """Best image URL for a feed entry, or None.
 
-    Priority: media:content, then media:thumbnail, then the first <img>
-    in the description HTML. Candidates with non-http(s) schemes are
-    discarded and the next source is tried.
+    Priority: media:content, then media:thumbnail, then image enclosures
+    (e.g. nordbayern.de), then the first <img> in the description HTML.
+    Candidates with non-http(s) schemes are discarded and the next source
+    is tried.
     """
     candidates: list[str] = []
     for key in ("media_content", "media_thumbnail"):
@@ -112,6 +113,14 @@ def _extract_image_url(entry, description: str) -> str | None:
             url = (media.get("url") or "").strip()
             if url:
                 candidates.append(url)
+
+    # Enclosures also carry podcast audio etc., so require an image MIME type.
+    for enclosure in entry.get("enclosures") or []:
+        if not (enclosure.get("type") or "").startswith("image/"):
+            continue
+        url = (enclosure.get("href") or "").strip()
+        if url:
+            candidates.append(url)
 
     img_src = _first_img_src(description)
     if img_src and img_src.strip():

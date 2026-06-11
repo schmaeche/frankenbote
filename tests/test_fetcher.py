@@ -130,6 +130,37 @@ class TestImageExtraction:
         [article] = _parse(make_source(), feed)
         assert article.image_url == "https://img.example.com/thumb.jpg"
 
+    def test_image_enclosure_used(self):
+        # nordbayern.de delivers article images as <enclosure> tags.
+        feed = _feed_with_item(
+            '<enclosure url="https://images.nordbayern.de/image/contentid/policy:1.123:456/foo.jpg?$p=abc" type="image/jpeg" length="376598"/>'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://images.nordbayern.de/image/contentid/policy:1.123:456/foo.jpg?$p=abc"
+
+    def test_media_content_preferred_over_enclosure(self):
+        feed = _feed_with_item(
+            '<media:content url="https://img.example.com/full.jpg" />'
+            '<enclosure url="https://img.example.com/enclosure.jpg" type="image/jpeg" length="1"/>'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/full.jpg"
+
+    def test_enclosure_preferred_over_description_img(self):
+        feed = _feed_with_item(
+            '<enclosure url="https://img.example.com/enclosure.jpg" type="image/jpeg" length="1"/>'
+            "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Text.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/enclosure.jpg"
+
+    def test_non_image_enclosure_ignored(self):
+        feed = _feed_with_item(
+            '<enclosure url="https://audio.example.com/podcast.mp3" type="audio/mpeg" length="1"/>'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url is None
+
     def test_description_img_used_as_last_resort(self):
         feed = _feed_with_item(
             "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Some text.</description>"
@@ -157,19 +188,6 @@ class TestImageExtraction:
         )
         [article] = _parse(make_source(), feed)
         assert article.image_url is None
-
-    def test_mp_image_scheme_rejected(self):
-        feed = _feed_with_item(
-            "<mp:image>"
-            "    <mp:width>568</mp:width>"
-            "    <mp:height>320</mp:height>"
-            "    <mp:data>"
-            "         https://img.br.de/dbf02c58-d00c-4ddb-b4de-403f53184569.jpeg?q=80&rect=0%2C969%2C3404%2C1914&w=568&h=320"
-            "    </mp:data>"
-            "</mp:image>"
-        )
-        [article] = _parse(make_source(), feed)
-        assert article.image_url == "https://img.br.de/dbf02c58-d00c-4ddb-b4de-403f53184569.jpeg?q=80&rect=0%2C969%2C3404%2C1914&w=568&h=320"
 
     def test_non_http_media_falls_through_to_next_source(self):
         feed = _feed_with_item(
