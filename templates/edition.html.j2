@@ -37,6 +37,14 @@
 
         {% for item in section.articles %}
         <article class="article">
+            {% if item.article.image_url %}
+            <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
+                <img class="article-image article-image--{{ 'hero' if item.is_lead else 'thumb' }}"
+                     src="{{ item.article.image_url }}"
+                     alt=""
+                     loading="lazy">
+            </a>
+            {% endif %}
             <h3 class="article__title">
                 <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
                     {{ item.article.title }}
