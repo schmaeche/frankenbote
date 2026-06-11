@@ -10,12 +10,16 @@ from frankenbote.renderer import (
     _copy_assets,
     _index_entry,
     _list_recent_editions,
+    _make_jinja_env,
     _prune_old_html,
+    _render_edition,
     _split_paragraphs,
     render_all,
 )
 from frankenbote.models import Edition, EditionSection, EditionStats
 from tests.conftest import FIXED_NOW, make_curated, make_article
+
+REAL_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
 def _make_edition(edition_date: str = "2026-05-03", selected: int = 5) -> Edition:
@@ -205,6 +209,72 @@ class TestListRecentEditions:
         result = _list_recent_editions(5)
         assert len(result) == 1
         assert result[0].edition_date == "2026-05-01"
+
+
+# ── Article images in the real edition template ─────────────────────────────
+
+def _edition_with_articles(curated_articles: list) -> Edition:
+    section = EditionSection(
+        id="politik_verwaltung",
+        display_name="Politik & Verwaltung",
+        articles=curated_articles,
+    )
+    return Edition(
+        edition_date="2026-05-03",
+        window_start=FIXED_NOW,
+        window_end=FIXED_NOW,
+        sections=[section],
+        stats=EditionStats(
+            candidates_in=10, curated_kept=5, curated_dropped=5,
+            selected=len(curated_articles),
+            by_priority={"P1": len(curated_articles)},
+            by_section={"politik_verwaltung": len(curated_articles)},
+        ),
+    )
+
+
+def _render_real_template(edition: Edition) -> str:
+    env = _make_jinja_env(REAL_TEMPLATES_DIR)
+    return _render_edition(env, edition, priority_labels={})
+
+
+class TestArticleImages:
+    def test_lead_article_with_image_renders_hero(self):
+        lead = make_curated(
+            is_lead=True,
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "article-image--hero" in html
+        assert 'src="https://img.example.com/full.jpg"' in html
+
+    def test_regular_article_with_image_renders_thumb(self):
+        lead = make_curated(is_lead=True)
+        regular = make_curated(
+            article=make_article(image_url="https://img.example.com/thumb.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead, regular]))
+        assert "article-image--thumb" in html
+        assert "article-image--hero" not in html
+
+    def test_article_without_image_renders_no_article_image(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "article-image" not in html
+
+    def test_image_is_linked_lazy_and_decorative(self):
+        lead = make_curated(
+            is_lead=True,
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        img_start = html.rindex("<img", 0, html.index("full.jpg"))
+        img_tag = html[img_start:html.index(">", img_start) + 1]
+        assert 'alt=""' in img_tag
+        assert 'loading="lazy"' in img_tag
+        # The image sits inside a link to the article, before the headline.
+        enclosing = html[html.rindex('<a href="https://example.com/article/1"', 0, img_start):img_start]
+        assert "</a>" not in enclosing
 
 
 # ── render_all ────────────────────────────────────────────────────────────────

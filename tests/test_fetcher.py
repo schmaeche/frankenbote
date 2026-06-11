@@ -6,7 +6,16 @@ import httpx
 import pytest
 import respx
 
-from frankenbote.fetcher import MAX_RESPONSE_BYTES, _download, _parse, fetch_all
+from frankenbote.fetcher import (
+    MAX_RESPONSE_BYTES,
+    _download,
+    _extract_image_url,
+    _first_img_src,
+    _is_safe_image_url,
+    _parse,
+    _strip_img_tags,
+    fetch_all,
+)
 from tests.conftest import make_source
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -76,6 +85,138 @@ class TestParse:
         # The sample feed is well-formed so this just checks it parses cleanly
         articles = _parse(source, _feed_bytes())
         assert isinstance(articles, list)
+
+
+# ── Image extraction ─────────────────────────────────────────────────────────
+
+def _feed_with_item(item_inner_xml: str) -> bytes:
+    """Build a one-item RSS feed (with the media RSS namespace) for tests."""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://example.com</link>
+    <description>Image extraction tests</description>
+    <item>
+      <title>Image Article</title>
+      <link>https://example.com/article/img</link>
+      {item_inner_xml}
+    </item>
+  </channel>
+</rss>""".encode()
+
+
+class TestImageExtraction:
+    def test_media_content_used(self):
+        feed = _feed_with_item(
+            '<media:content url="https://img.example.com/full.jpg" />'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/full.jpg"
+
+    def test_media_content_preferred_over_thumbnail_and_description(self):
+        feed = _feed_with_item(
+            '<media:content url="https://img.example.com/full.jpg" />'
+            '<media:thumbnail url="https://img.example.com/thumb.jpg" />'
+            "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Text.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/full.jpg"
+
+    def test_media_thumbnail_used_when_no_media_content(self):
+        feed = _feed_with_item(
+            '<media:thumbnail url="https://img.example.com/thumb.jpg" />'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/thumb.jpg"
+
+    def test_description_img_used_as_last_resort(self):
+        feed = _feed_with_item(
+            "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Some text.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/inline.jpg"
+
+    def test_img_tags_stripped_from_summary(self):
+        feed = _feed_with_item(
+            "<description>Before &lt;img src=\"https://img.example.com/inline.jpg\" alt=\"x\"&gt; after.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert "<img" not in article.summary
+        assert "Before" in article.summary
+        assert "after." in article.summary
+
+    def test_no_image_anywhere_gives_none(self):
+        feed = _feed_with_item("<description>Plain text only.</description>")
+        [article] = _parse(make_source(), feed)
+        assert article.image_url is None
+
+    def test_non_http_scheme_discarded(self):
+        feed = _feed_with_item(
+            '<media:content url="javascript:alert(1)" />'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url is None
+
+    def test_mp_image_scheme_rejected(self):
+        feed = _feed_with_item(
+            "<mp:image>"
+            "    <mp:width>568</mp:width>"
+            "    <mp:height>320</mp:height>"
+            "    <mp:data>"
+            "         https://img.br.de/dbf02c58-d00c-4ddb-b4de-403f53184569.jpeg?q=80&rect=0%2C969%2C3404%2C1914&w=568&h=320"
+            "    </mp:data>"
+            "</mp:image>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.br.de/dbf02c58-d00c-4ddb-b4de-403f53184569.jpeg?q=80&rect=0%2C969%2C3404%2C1914&w=568&h=320"
+
+    def test_non_http_media_falls_through_to_next_source(self):
+        feed = _feed_with_item(
+            '<media:content url="data:image/png;base64,AAAA" />'
+            '<media:thumbnail url="https://img.example.com/thumb.jpg" />'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/thumb.jpg"
+
+
+class TestImageHelpers:
+    def test_is_safe_accepts_http_and_https(self):
+        assert _is_safe_image_url("https://example.com/a.jpg") is True
+        assert _is_safe_image_url("http://example.com/a.jpg") is True
+
+    def test_is_safe_rejects_other_schemes(self):
+        for url in ("javascript:alert(1)", "data:image/png;base64,AAAA",
+                    "file:///etc/passwd", "//example.com/a.jpg", "a.jpg"):
+            assert _is_safe_image_url(url) is False
+
+    def test_first_img_src_returns_first_of_many(self):
+        html = '<p><img src="https://a.jpg"><img src="https://b.jpg"></p>'
+        assert _first_img_src(html) == "https://a.jpg"
+
+    def test_first_img_src_none_without_img(self):
+        assert _first_img_src("<p>no image</p>") is None
+
+    def test_first_img_src_none_when_src_missing(self):
+        assert _first_img_src('<img alt="x">') is None
+
+    def test_strip_img_tags_removes_all_variants(self):
+        html = 'a <img src="x.jpg"> b <IMG SRC="y.jpg" /> c </img> d'
+        stripped = _strip_img_tags(html)
+        assert "img" not in stripped.lower()
+        assert " ".join(stripped.split()) == "a b c d"
+
+    def test_extract_prefers_media_content_dict(self):
+        entry = {
+            "media_content": [{"url": "https://a.jpg"}],
+            "media_thumbnail": [{"url": "https://b.jpg"}],
+        }
+        assert _extract_image_url(entry, "") == "https://a.jpg"
+
+    def test_extract_skips_media_entry_without_url(self):
+        entry = {"media_content": [{"type": "video/mp4"}],
+                 "media_thumbnail": [{"url": "https://b.jpg"}]}
+        assert _extract_image_url(entry, "") == "https://b.jpg"
 
 
 # ── _download() — async tests via respx ─────────────────────────────────────
