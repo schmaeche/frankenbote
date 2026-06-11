@@ -44,6 +44,7 @@ class Article(BaseModel):
     title: str
     link: str  # not HttpUrl — some feeds emit unusual but valid URLs
     summary: str = ""  # short description from the feed (may be empty)
+    image_url: str | None = None  # best image from the feed item, http(s) only
     published: datetime | None = None  # not all feeds reliably include this
     fetched_at: datetime
 
