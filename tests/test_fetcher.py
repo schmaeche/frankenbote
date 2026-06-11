@@ -90,9 +90,10 @@ class TestParse:
 # ── Image extraction ─────────────────────────────────────────────────────────
 
 def _feed_with_item(item_inner_xml: str) -> bytes:
-    """Build a one-item RSS feed (with the media RSS namespace) for tests."""
+    """Build a one-item RSS feed (with the media RSS and metaplus namespaces) for tests."""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"
+    xmlns:mp="http://www.tagesschau.de/rss/1.1/modules/metaplus/1.1.1/">
   <channel>
     <title>Test Feed</title>
     <link>https://example.com</link>
@@ -160,6 +161,47 @@ class TestImageExtraction:
         )
         [article] = _parse(make_source(), feed)
         assert article.image_url is None
+
+    def test_mp_image_data_used(self):
+        # BR24/tagesschau deliver images via the metaplus <mp:image> schema.
+        feed = _feed_with_item(
+            "<mp:image>"
+            "<mp:width>568</mp:width>"
+            "<mp:height>320</mp:height>"
+            "<mp:alt>Alt text</mp:alt>"
+            "<mp:data> https://img.br.de/pic.jpeg?q=80&amp;w=568&amp;h=320 </mp:data>"
+            "</mp:image>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.br.de/pic.jpeg?q=80&w=568&h=320"
+
+    def test_mp_image_last_resolution_variant_used(self):
+        # metaplus repeats <mp:image> per resolution; feedparser flattens the
+        # namespace so only the last variant's mp:data survives.
+        feed = _feed_with_item(
+            "<mp:image><mp:width>996</mp:width><mp:height>560</mp:height>"
+            "<mp:data>https://img.br.de/pic.jpeg?w=996&amp;h=560</mp:data></mp:image>"
+            "<mp:image><mp:width>1024</mp:width><mp:height>460</mp:height>"
+            "<mp:data>https://img.br.de/pic.jpeg?w=1024&amp;h=460</mp:data></mp:image>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.br.de/pic.jpeg?w=1024&h=460"
+
+    def test_media_content_preferred_over_mp_image(self):
+        feed = _feed_with_item(
+            '<media:content url="https://img.example.com/full.jpg" />'
+            "<mp:image><mp:data>https://img.br.de/pic.jpeg</mp:data></mp:image>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.example.com/full.jpg"
+
+    def test_mp_image_preferred_over_description_img(self):
+        feed = _feed_with_item(
+            "<mp:image><mp:data>https://img.br.de/pic.jpeg</mp:data></mp:image>"
+            "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Text.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.br.de/pic.jpeg"
 
     def test_description_img_used_as_last_resort(self):
         feed = _feed_with_item(

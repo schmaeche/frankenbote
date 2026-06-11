@@ -103,9 +103,9 @@ def _extract_image_url(entry, description: str) -> str | None:
     """Best image URL for a feed entry, or None.
 
     Priority: media:content, then media:thumbnail, then image enclosures
-    (e.g. nordbayern.de), then the first <img> in the description HTML.
-    Candidates with non-http(s) schemes are discarded and the next source
-    is tried.
+    (e.g. nordbayern.de), then metaplus mp:image (BR24/tagesschau), then
+    the first <img> in the description HTML. Candidates with non-http(s)
+    schemes are discarded and the next source is tried.
     """
     candidates: list[str] = []
     for key in ("media_content", "media_thumbnail"):
@@ -121,6 +121,13 @@ def _extract_image_url(entry, description: str) -> str | None:
         url = (enclosure.get("href") or "").strip()
         if url:
             candidates.append(url)
+
+    # Metaplus (BR24/tagesschau) repeats <mp:image> per resolution; feedparser
+    # flattens the unknown namespace, so only the last variant's URL survives
+    # as a plain string under mp_data.
+    mp_data = (entry.get("mp_data") or "").strip()
+    if mp_data:
+        candidates.append(mp_data)
 
     img_src = _first_img_src(description)
     if img_src and img_src.strip():
