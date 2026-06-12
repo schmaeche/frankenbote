@@ -278,6 +278,10 @@ class TestImageHelpers:
                     "file:///etc/passwd", "//example.com/a.jpg", "a.jpg"):
             assert _is_safe_image_url(url) is False
 
+    def test_is_safe_rejects_unparseable_url(self):
+        # An unmatched IPv6 bracket makes urlsplit raise ValueError.
+        assert _is_safe_image_url("https://[::1/a.jpg") is False
+
     def test_first_img_src_returns_first_of_many(self):
         html = '<p><img src="https://a.jpg"><img src="https://b.jpg"></p>'
         assert _first_img_src(html) == "https://a.jpg"
