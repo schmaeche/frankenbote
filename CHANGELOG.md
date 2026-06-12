@@ -3,11 +3,18 @@
 Changes to frankenbote.
 
 ---
-## [unreleased]
+## [0.4.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0..v0.4.0) - 2026-06-12
+
+### Changed
+
+- Add debug for understanding wrong call during pushes [no ci] - ([246fd4b](http://192.168.2.134:3000/intipunku/frankenbote/commit/246fd4b6cd64d4670967b3a56a75a686ba486e23)) - kura_andi
+- Retrigger - ([1aeefd3](http://192.168.2.134:3000/intipunku/frankenbote/commit/1aeefd342e784c36c53c04c845b6328ed4fd6d17)) - kura_andi
 
 ### Documentation
 
+- **(changelog)** Update changelog with recent feature additions and enhancements [no ci] - ([bdd8f66](http://192.168.2.134:3000/intipunku/frankenbote/commit/bdd8f665b51c169e061b51da3364a42869f4db90)) - kura_andi
 - **(changelog)** Add commit preprocessor to enforce blank line before footer in conventional commits - ([d2569ab](http://192.168.2.134:3000/intipunku/frankenbote/commit/d2569abf22eb00e1e32abbb1edd2ee1877744aef)) - kura_andi
+- **(readme)** Update README to include paywall detection module and its components [no ci] - ([631c5eb](http://192.168.2.134:3000/intipunku/frankenbote/commit/631c5ebd4fbba6d2b23c20035329995f8a34a7c9)) - kura_andi
 
 ### Features
 
