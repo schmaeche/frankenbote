@@ -21,6 +21,15 @@ MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MB — a sane upper bound
 # an error page, or a cookie wall — and reported as a failed fetch.
 MIN_BODY_CHARS = 400
 
+# Shared with the paywall content-length strategy, which predicts whether
+# this module would yield a usable body and must measure the same extraction.
+EXTRACT_SETTINGS = {
+    "include_comments": False,
+    "include_tables": False,
+    "deduplicate": True,
+    "favor_recall": True,
+}
+
 
 async def fetch_body(client: httpx.AsyncClient, url: str) -> str | None:
     """Fetch one article page and extract its main text.
@@ -35,13 +44,7 @@ async def fetch_body(client: httpx.AsyncClient, url: str) -> str | None:
         response.raise_for_status()
         if len(response.content) > MAX_RESPONSE_BYTES:
             return None
-        body = trafilatura.extract(
-            response.text,
-            include_comments=False,
-            include_tables=False,
-            deduplicate=True,
-            favor_recall=True,
-        )
+        body = trafilatura.extract(response.text, **EXTRACT_SETTINGS)
     except Exception:  # broad on purpose — one bad page shouldn't abort the run
         return None
 

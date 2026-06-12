@@ -7,9 +7,38 @@ import pytest
 from frankenbote.paywall import PaywallResult, is_paywalled
 from frankenbote.paywall import detector
 from frankenbote.paywall.base import PaywallStrategy
-from frankenbote.paywall.strategies import StructuredMetadataStrategy
+from frankenbote.paywall.strategies import (
+    ContentLengthStrategy,
+    StructuredMetadataStrategy,
+    content_length,
+)
 
 URL = "https://www.sueddeutsche.de/bayern/artikel-1"
+FAZ_URL = "https://www.faz.net/aktuell/finanzen/artikel-1"
+
+# Long enough that the content-length strategy stays silent — pages built
+# with _page() exercise the metadata signal, not the length heuristic.
+_LONG_BODY = "<p>" + (
+    "Die Lage bleibt nach Einschätzung von Beobachtern angespannt, "
+    "auch wenn sich einzelne Indikatoren zuletzt leicht verbessert haben. "
+) * 30 + "</p>"
+
+# FAZ-style paywall page: no usable metadata, and extraction yields only
+# the teaser plus the subscription offer.
+_TEASER_PAGE = (
+    '<!DOCTYPE html><html lang="de"><head><title>Test</title></head>'
+    "<body><article>"
+    "<h1>SpaceX-Aktie: Ein Börsenprospekt wie im Science-Fiction-Film</h1>"
+    "<p>Elon Musk will zum Mars. Einen Zwischenstopp aber möchte er mit seinem "
+    "Unternehmen SpaceX am Freitag noch einlegen: das digitale Parkett der New "
+    "Yorker Börse Nasdaq. Das nötige Kapital für die Erschließung eines neuen "
+    "Planeten steuert selbst der reichste Mensch der Welt nicht einfach selbst "
+    "bei, vielmehr sollen alle daran teilhaben können.</p>"
+    '<div class="paywall"><p>Zugang zu allen FAZ+ Beiträgen '
+    "(Originalpreis: 13,80 €) jetzt nur 0,99 €</p>"
+    "<p>- Mit einem Klick online kündbar</p></div>"
+    "</article></body></html>"
+)
 
 
 def _page(ld_json: str | None) -> str:
@@ -21,9 +50,7 @@ def _page(ld_json: str | None) -> str:
     return (
         '<!DOCTYPE html><html lang="de"><head><title>Test</title>'
         f"{script}</head>"
-        "<body><article><h1>Eine Schlagzeile</h1>"
-        "<p>Der Anriss des Artikels, mehr gibt das Markup nicht her.</p>"
-        "</article></body></html>"
+        f"<body><article><h1>Eine Schlagzeile</h1>{_LONG_BODY}</article></body></html>"
     )
 
 
@@ -123,6 +150,42 @@ class TestStructuredMetadataStrategy:
         assert self.strategy.detect("", URL) is None
 
 
+# ── ContentLengthStrategy ────────────────────────────────────────────────────
+
+class TestContentLengthStrategy:
+    strategy = ContentLengthStrategy()
+
+    def test_teaser_page_is_paywalled(self):
+        result = self.strategy.detect(_TEASER_PAGE, FAZ_URL)
+        assert result == PaywallResult(paywalled=True, strategy="content_length")
+
+    def test_full_article_is_no_signal(self):
+        assert self.strategy.detect(_page(None), FAZ_URL) is None
+
+    def test_empty_html_is_no_signal(self):
+        assert self.strategy.detect("", FAZ_URL) is None
+
+    def test_malformed_html_is_no_signal(self):
+        assert self.strategy.detect("<![unknown[ <p>corrupt</p <x><x><x", FAZ_URL) is None
+
+    def test_extraction_error_is_no_signal(self, monkeypatch):
+        def _raise(html, **settings):
+            raise RuntimeError("extraction failed")
+
+        monkeypatch.setattr(content_length.trafilatura, "extract", _raise)
+        assert self.strategy.detect(_TEASER_PAGE, FAZ_URL) is None
+
+    def test_does_not_read_metadata(self):
+        # Free per JSON-LD but teaser-sized: this strategy flags it; the
+        # detector ordering is what protects labelled short articles.
+        html = _TEASER_PAGE.replace(
+            "</head>",
+            f'<script type="application/ld+json">{_sz_ld_json(True)}</script></head>',
+        )
+        result = self.strategy.detect(html, FAZ_URL)
+        assert result is not None and result.paywalled is True
+
+
 # ── is_paywalled (detector) ──────────────────────────────────────────────────
 
 class _StubStrategy(PaywallStrategy):
@@ -145,8 +208,23 @@ class TestIsPaywalled:
         result = is_paywalled(_page(_sz_ld_json(True)), URL)
         assert result is not None and result.paywalled is False
 
-    def test_faz_style_resolves_to_unknown(self):
+    def test_faz_full_article_resolves_to_unknown(self):
+        # No isAccessibleForFree and a full-length body: no strategy decides.
         assert is_paywalled(_page(_FAZ_LD_JSON), URL) is None
+
+    def test_faz_teaser_resolves_to_paywalled_by_length(self):
+        result = is_paywalled(_TEASER_PAGE, FAZ_URL)
+        assert result == PaywallResult(paywalled=True, strategy="content_length")
+
+    def test_metadata_free_wins_over_short_body(self):
+        # A labelled-free page is free even when teaser-sized — structured
+        # metadata runs before the length heuristic.
+        html = _TEASER_PAGE.replace(
+            "</head>",
+            f'<script type="application/ld+json">{_sz_ld_json(True)}</script></head>',
+        )
+        result = is_paywalled(html, FAZ_URL)
+        assert result == PaywallResult(paywalled=False, strategy="structured_metadata")
 
     def test_url_is_optional(self):
         assert is_paywalled(_page(_FAZ_LD_JSON)) is None

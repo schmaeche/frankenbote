@@ -1,14 +1,23 @@
 """The detector — runs the registered strategies in order.
 
-To add a detection approach, implement PaywallStrategy in strategies.py
-and append an instance to _STRATEGIES below. Call sites stay unchanged.
+To add a detection approach, implement PaywallStrategy in its own module
+under strategies/ and append an instance to _STRATEGIES below. Call sites
+stay unchanged.
 """
 
 from frankenbote.paywall.base import PaywallResult, PaywallStrategy
-from frankenbote.paywall.strategies import StructuredMetadataStrategy
+from frankenbote.paywall.strategies import (
+    ContentLengthStrategy,
+    StructuredMetadataStrategy,
+)
 
-# Ordered: cheapest / most reliable signals first.
-_STRATEGIES: tuple[PaywallStrategy, ...] = (StructuredMetadataStrategy(),)
+# Ordered: cheapest / most reliable signals first. Structured metadata is
+# authoritative where present; the length heuristic only sees pages the
+# metadata could not decide.
+_STRATEGIES: tuple[PaywallStrategy, ...] = (
+    StructuredMetadataStrategy(),
+    ContentLengthStrategy(),
+)
 
 
 def is_paywalled(html: str, url: str | None = None) -> PaywallResult | None:

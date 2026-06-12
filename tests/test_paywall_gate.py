@@ -17,6 +17,14 @@ OPTIONS = SelectorOptions(edition_size=2)
 LINKS = [f"https://news.example.com/artikel/{i}" for i in range(3)]
 
 
+# Long enough that the content-length strategy stays silent — these pages
+# are decided (or not) by their metadata alone.
+_LONG_BODY = "<p>" + (
+    "Die Lage bleibt nach Einschätzung von Beobachtern angespannt, "
+    "auch wenn sich einzelne Indikatoren zuletzt leicht verbessert haben. "
+) * 30 + "</p>"
+
+
 def _page(ld_json: str | None) -> str:
     script = (
         f'<script type="application/ld+json">{ld_json}</script>'
@@ -26,7 +34,7 @@ def _page(ld_json: str | None) -> str:
     return (
         '<!DOCTYPE html><html lang="de"><head><title>Test</title>'
         f"{script}</head>"
-        "<body><article><h1>Eine Schlagzeile</h1><p>Anriss.</p></article></body></html>"
+        f"<body><article><h1>Eine Schlagzeile</h1>{_LONG_BODY}</article></body></html>"
     )
 
 
@@ -37,6 +45,15 @@ def _ld(accessible: bool) -> str:
 _FREE_PAGE = _page(_ld(True))
 _PAYWALLED_PAGE = _page(_ld(False))
 _NO_SIGNAL_PAGE = _page(None)
+
+# FAZ-style: no usable metadata, only a teaser-sized body — paywalled via
+# the content-length strategy.
+_TEASER_PAGE = (
+    '<!DOCTYPE html><html lang="de"><head><title>Test</title></head>'
+    "<body><article><h1>Eine Schlagzeile</h1>"
+    "<p>Nur der Anriss, dann kommt das Abo-Angebot.</p>"
+    "</article></body></html>"
+)
 
 
 def _candidates() -> list:
@@ -70,6 +87,13 @@ class TestSelectEdition:
         assert _links_in(edition) == [LINKS[1], LINKS[2]]
         assert skipped == [LINKS[0]]
         assert edition.stats.selected == 2
+
+    @respx.mock
+    async def test_teaser_page_replaced_by_next_best(self):
+        _mock_pages({LINKS[0]: _TEASER_PAGE, LINKS[1]: _FREE_PAGE, LINKS[2]: _FREE_PAGE})
+        edition, skipped = await select_edition(_candidates(), CONFIG, SOURCE_IDS, OPTIONS)
+        assert _links_in(edition) == [LINKS[1], LINKS[2]]
+        assert skipped == [LINKS[0]]
 
     @respx.mock
     async def test_nothing_paywalled_keeps_top_selection(self):

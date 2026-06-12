@@ -6,8 +6,9 @@ truncation checks, ...) get their own module here and are registered in
 ``detector.py``.
 """
 
+from frankenbote.paywall.strategies.content_length import ContentLengthStrategy
 from frankenbote.paywall.strategies.structured_metadata import (
     StructuredMetadataStrategy,
 )
 
-__all__ = ["StructuredMetadataStrategy"]
+__all__ = ["ContentLengthStrategy", "StructuredMetadataStrategy"]
