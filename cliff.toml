@@ -62,6 +62,9 @@ filter_unconventional = false
 split_commits = false
 # An array of regex based parsers to modify commit messages prior to further processing.
 commit_preprocessors = [
+    # Insert the blank line required by the conventional commits spec between
+    # the subject and a "Fixes/Closes/Resolves #N" footer written directly below it.
+    { pattern = '([^\n])\n((?i:fix(?:es|ed)?|close[sd]?|resolve[sd]?) #[0-9]+)', replace = "${1}\n\n${2}" },
     # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
     #{ pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](https://github.com/orhun/git-cliff/issues/${2}))"},
 ]
