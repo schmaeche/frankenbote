@@ -3,6 +3,37 @@
 Changes to frankenbote.
 
 ---
+## [unreleased]
+
+### Documentation
+
+- **(changelog)** Add commit preprocessor to enforce blank line before footer in conventional commits - ([d2569ab](http://192.168.2.134:3000/intipunku/frankenbote/commit/d2569abf22eb00e1e32abbb1edd2ee1877744aef)) - kura_andi
+
+### Features
+
+- **(fetcher)** Update image extraction logic to prioritize content:encoded. Fixes #23 - ([c87c3d9](http://192.168.2.134:3000/intipunku/frankenbote/commit/c87c3d9495b6bc14f4e7851f81fd009f21cbe63d)) - kura_andi
+- **(fetcher)** Enhance image extraction to support metaplus mp:image schema. Fixes #23 - ([c22f8b2](http://192.168.2.134:3000/intipunku/frankenbote/commit/c22f8b2cb93642e6742d4eb4d3e875f651894e09)) - kura_andi
+- **(fetcher)** Enhance image extraction logic to prioritize enclosures and update tests - ([f227f92](http://192.168.2.134:3000/intipunku/frankenbote/commit/f227f92edbbdcfc66c611b1a8ebe9c938d4634ca)) - kura_andi
+- **(fetcher)** Extract and handle image URLs from feed entries - ([023939b](http://192.168.2.134:3000/intipunku/frankenbote/commit/023939bbf6144708c89bf5377e91841c7cb6948b)) - kura_andi
+- **(models)** Add image_url field to Article model - ([a0657c8](http://192.168.2.134:3000/intipunku/frankenbote/commit/a0657c85b3b20ee7cd79cc34ef2be67c2be85bfb)) - kura_andi
+- **(paywall)** Add ContentLengthStrategy for paywall detection and update detector logic - ([686051b](http://192.168.2.134:3000/intipunku/frankenbote/commit/686051bf6dcbbc7ab531d6c6c4fa6f785e32d5ab)) - kura_andi
+- **(paywall)** Implement paywall detection and selection logic, add tests for paywalled articles - ([ccf439e](http://192.168.2.134:3000/intipunku/frankenbote/commit/ccf439ea8020739b6d99952ef09bdd20bb459bc2)) - kura_andi
+- **(paywall)** Implement paywall detection strategies and detector logic - ([386bed2](http://192.168.2.134:3000/intipunku/frankenbote/commit/386bed2b38d6fbb0582c718a186813f39eecf6fe)) - kura_andi
+- **(renderer)** Add image display for articles with hero and thumbnail styles - ([2de057f](http://192.168.2.134:3000/intipunku/frankenbote/commit/2de057f90e814a187a17d769335fd8ab7f6d46cb)) - kura_andi
+- **(styles)** Add wrap-up details section with toggle functionality in article template - ([4aa60ce](http://192.168.2.134:3000/intipunku/frankenbote/commit/4aa60cea9b8e109e6e7bfe156fa14a0c22544d70)) - kura_andi
+- **(summarizer)** Modify selection filter to allow wrap-ups for all articles. fixes #28 - ([0e73800](http://192.168.2.134:3000/intipunku/frankenbote/commit/0e738000076e173a35923b65d5a9bd4773527c91)) - kura_andi
+- **(tests)** Add test for rejecting unparseable URLs in image safety check - ([1fdc0a4](http://192.168.2.134:3000/intipunku/frankenbote/commit/1fdc0a4273d21efbbdb7d02ec2df4d640b9fd91b)) - kura_andi
+- **(tests)** Add image extraction tests and update renderer tests for article images - ([9037ef2](http://192.168.2.134:3000/intipunku/frankenbote/commit/9037ef20b1ccc350f4a76cba890c1c601fc0fb91)) - kura_andi
+
+### Miscellaneous Chores
+
+- **(tests)** Add test for handling malformed HTML and JSON in paywall detection - ([84c78e3](http://192.168.2.134:3000/intipunku/frankenbote/commit/84c78e3a36e23744448ab0f6f5c6de08924d6655)) - kura_andi
+
+### Refactoring
+
+- **(summarizer)** Enhance logging for article body availability in batch wrap-up generation - ([cdd14e5](http://192.168.2.134:3000/intipunku/frankenbote/commit/cdd14e5145457d690545e8a364c94ea92974da69)) - kura_andi
+
+---
 ## [0.3.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0-beta3..v0.3.0) - 2026-05-28
 
 ### Documentation
