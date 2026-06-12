@@ -37,12 +37,11 @@ class _LdJsonExtractor(HTMLParser):
 
 
 def _ld_json_blocks(html: str) -> list[str]:
+    # html.parser is lenient by design — no string input makes it raise,
+    # so malformed HTML simply yields fewer (or zero) blocks.
     extractor = _LdJsonExtractor()
-    try:
-        extractor.feed(html)
-        extractor.close()
-    except Exception:  # malformed HTML is "no signal", never an error
-        pass
+    extractor.feed(html)
+    extractor.close()
     return extractor.blocks
 
 

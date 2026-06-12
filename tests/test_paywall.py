@@ -79,7 +79,10 @@ class TestStructuredMetadataStrategy:
         assert self.strategy.detect(_page(None), URL) is None
 
     def test_malformed_json_is_no_signal(self):
-        assert self.strategy.detect(_page("{nicht: json,,,"), URL) is None
+        assert self.strategy.detect(_page("{not: json,,,"), URL) is None
+
+    def test_malformed_html_is_no_signal(self):
+        assert self.strategy.detect("<![unknown[ <p>corrupt</p <x><x><x", URL) is None
 
     def test_non_json_script_then_valid_block_still_decides(self):
         html = _page("var foo = 1;").replace(
