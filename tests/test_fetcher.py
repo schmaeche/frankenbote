@@ -93,7 +93,8 @@ def _feed_with_item(item_inner_xml: str) -> bytes:
     """Build a one-item RSS feed (with the media RSS and metaplus namespaces) for tests."""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"
-    xmlns:mp="http://www.tagesschau.de/rss/1.1/modules/metaplus/1.1.1/">
+    xmlns:mp="http://www.tagesschau.de/rss/1.1/modules/metaplus/1.1.1/"
+    xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
     <title>Test Feed</title>
     <link>https://example.com</link>
@@ -202,6 +203,33 @@ class TestImageExtraction:
         )
         [article] = _parse(make_source(), feed)
         assert article.image_url == "https://img.br.de/pic.jpeg"
+
+    def test_content_encoded_img_used(self):
+        # tagesschau.de embeds the article image as an <img> in content:encoded.
+        feed = _feed_with_item(
+            "<description>Plain text teaser.</description>"
+            '<content:encoded><![CDATA[<p> <a href="https://example.com/article">'
+            '<img src="https://images.example.de/pic.jpg?width=1920" alt="Alt | Agency" /></a>'
+            " <br/>Teaser text.</p>]]></content:encoded>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://images.example.de/pic.jpg?width=1920"
+
+    def test_mp_image_preferred_over_content_encoded(self):
+        feed = _feed_with_item(
+            "<mp:image><mp:data>https://img.br.de/pic.jpeg</mp:data></mp:image>"
+            '<content:encoded><![CDATA[<img src="https://images.example.de/pic.jpg">]]></content:encoded>'
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://img.br.de/pic.jpeg"
+
+    def test_content_encoded_preferred_over_description_img(self):
+        feed = _feed_with_item(
+            '<content:encoded><![CDATA[<img src="https://images.example.de/content.jpg">]]></content:encoded>'
+            "<description>&lt;img src=\"https://img.example.com/inline.jpg\"&gt; Text.</description>"
+        )
+        [article] = _parse(make_source(), feed)
+        assert article.image_url == "https://images.example.de/content.jpg"
 
     def test_description_img_used_as_last_resort(self):
         feed = _feed_with_item(
