@@ -13,7 +13,8 @@ from frankenbote.config import load_sources
 from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
 from frankenbote.models import Priority
-from frankenbote.selector import select, SelectorOptions, load_selector_targets
+from frankenbote.paywall_gate import select_edition
+from frankenbote.selector import SelectorOptions, load_selector_targets
 from frankenbote.storage import ( 
     load_edition,
     save_candidates,
@@ -187,9 +188,9 @@ def pipeline(
         sys.exit(1)
     save_curated_raw(curated, edition_date)
 
-    # 4. Select
+    # 4. Select (paywalled articles are skipped and replaced)
     options = SelectorOptions(edition_size=size, targets=targets)
-    edition = select(
+    edition, paywalled = asyncio.run(select_edition(
         curated=curated,
         config=curator_cfg,
         source_ids_in_order=[s.id for s in sources],
@@ -197,7 +198,11 @@ def pipeline(
         edition_date=edition_date,
         window_start=result.window_start,
         window_end=result.window_end,
-    )
+    ))
+    if paywalled:
+        click.echo(f"\nPaywall: skipped {len(paywalled)} article(s):")
+        for link in paywalled:
+            click.echo(f"  ⨯ {link}")
     es = edition.stats
     effective = options.effective_targets
     target_str = " ".join(f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4"))
@@ -382,13 +387,17 @@ def select_cmd(
         sys.exit(1)
 
     options = SelectorOptions(edition_size=size, targets=targets)
-    edition = select(
+    edition, paywalled = asyncio.run(select_edition(
         curated=curated,
         config=config,
         source_ids_in_order=source_ids,
         options=options,
         edition_date=curated_date,
-    )
+    ))
+    if paywalled:
+        click.echo(f"Paywall: skipped {len(paywalled)} article(s):")
+        for link in paywalled:
+            click.echo(f"  ⨯ {link}")
 
     s = edition.stats
     effective = options.effective_targets
