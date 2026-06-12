@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
+      - run: echo "event=${{ github.event_name }} action=${{ github.event.action }} ref=${{ github.ref }}"
       - name: Validate branch name
         run: |
           BRANCH="${{ github.head_ref }}"
