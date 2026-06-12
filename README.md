@@ -336,6 +336,11 @@ frankenbote/
 │   ├── body_fetcher.py # Async article text fetching
 │   ├── fetcher.py      # Async RSS fetching
 │   ├── filter.py       # Time-window and keyword filtering
+│   ├── paywall/        # Paywall detection (strategy-based)
+│   │   ├── base.py     # Strategy protocol and shared types
+│   │   ├── detector.py # Runs registered strategies, aggregates verdicts
+│   │   └── strategies/ # One module per strategy (structured metadata, content length)
+│   ├── paywall_gate.py # Applies paywall verdicts in the pipeline
 │   ├── curator.py      # AI curation via Claude
 │   ├── selector.py     # Priority-based article selection
 │   ├── summarizer.py   # AI summarization via Claude
