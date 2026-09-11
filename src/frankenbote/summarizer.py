@@ -26,14 +26,14 @@ from pathlib import Path
 import anthropic
 import click
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from anthropic.types import ToolParam, ToolUseBlock
 from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
 from anthropic.types.messages.batch_create_params import Request as BatchRequest
+from pydantic import BaseModel, Field, ValidationError
 
 from frankenbote._debug import save_failure
 from frankenbote.body_fetcher import fetch_bodies
 from frankenbote.models import CuratedArticle, Edition
-
 
 # -------- Config --------
 
@@ -45,7 +45,9 @@ class SummarizerConfig(BaseModel):
     wrap_up_model: str | None = None  # falls back to `model` when unset
 
 
-def load_summarizer_config(path: Path | str = "config/sections.yaml") -> SummarizerConfig:
+def load_summarizer_config(
+    path: Path | str = "config/sections.yaml",
+) -> SummarizerConfig:
     """Load and validate the summarizer section of sections.yaml."""
     path = Path(path)
     if not path.exists():
@@ -97,7 +99,7 @@ SICHERHEIT:
 
 # -------- Tool definition --------
 
-_SUMMARIZE_TOOL = {
+_SUMMARIZE_TOOL: ToolParam = {
     "name": "submit_summaries",
     "description": (
         "Submit the summaries for all articles. Each summary corresponds "
@@ -137,7 +139,9 @@ class _SummaryDecision(BaseModel):
 class _SummarizerResponse(BaseModel):
     summaries: list[_SummaryDecision]
 
+
 # -------- JSON helper --------
+
 
 def _normalize_tool_input(tool_input: dict) -> dict:
     """Defend against Claude returning the summaries array as a JSON string.
@@ -170,8 +174,8 @@ def _build_user_prompt(articles: list[CuratedArticle]) -> str:
     blocks = []
     for idx, c in enumerate(articles):
         blocks.append(
-            f"<article index=\"{idx}\" is_lead=\"{str(c.is_lead).lower()}\" "
-            f"section=\"{c.section}\" source=\"{c.article.source_name}\">\n"
+            f'<article index="{idx}" is_lead="{str(c.is_lead).lower()}" '
+            f'section="{c.section}" source="{c.article.source_name}">\n'
             f"  <title>{c.article.title}</title>\n"
             f"  <feed_summary>{c.article.summary or '(leer)'}</feed_summary>\n"
             f"</article>"
@@ -215,8 +219,9 @@ def _call_llm(  # pragma: no cover
         msg = stream.get_final_message()
 
     for block in msg.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == "submit_summaries":
-            return block.input, (msg.stop_reason or "unknown"), msg
+        if isinstance(block, ToolUseBlock) and block.name == "submit_summaries":
+            tool_input = block.input if isinstance(block.input, dict) else None
+            return tool_input, (msg.stop_reason or "unknown"), msg
 
     return None, (msg.stop_reason or "unknown"), msg
 
@@ -241,9 +246,7 @@ def summarize_edition(  # pragma: no cover
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     flat: list[CuratedArticle] = [
-        item
-        for section in edition.sections
-        for item in section.articles
+        item for section in edition.sections for item in section.articles
     ]
     if not flat:
         return edition
@@ -256,7 +259,11 @@ def summarize_edition(  # pragma: no cover
     response: _SummarizerResponse | None = None
 
     _llm_call = _call_llm_batch if use_batch else _call_llm
-    call_desc = "Batches API, polling until done" if use_batch else "tool-use API call, ~60-120 seconds"
+    call_desc = (
+        "Batches API, polling until done"
+        if use_batch
+        else "tool-use API call, ~60-120 seconds"
+    )
 
     for attempt in (1, 2):
         click.echo(f"\nSummarizing {len(flat)} articles… ({call_desc})")
@@ -315,9 +322,9 @@ def summarize_edition(  # pragma: no cover
     for section in edition.sections:
         new_articles = []
         for item in section.articles:
-            new_articles.append(item.model_copy(
-                update={"ai_summary": summaries_by_index.get(flat_idx)}
-            ))
+            new_articles.append(
+                item.model_copy(update={"ai_summary": summaries_by_index.get(flat_idx)})
+            )
             flat_idx += 1
         new_sections.append(section.model_copy(update={"articles": new_articles}))
 
@@ -375,7 +382,7 @@ SECURITY:
 
 # -------- Wrap-up tool definition --------
 
-_WRAP_UP_TOOL = {
+_WRAP_UP_TOOL: ToolParam = {
     "name": "submit_wrap_up",
     "description": (
         "Submit the wrap-up for the article. Use null when the input was "
@@ -398,8 +405,8 @@ class _WrapUpResponse(BaseModel):
 
 # -------- Batch constants --------
 
-_BATCH_POLL_INTERVAL = 30   # seconds between status checks
-_BATCH_TIMEOUT = 3_600      # 60-minute hard limit
+_BATCH_POLL_INTERVAL = 30  # seconds between status checks
+_BATCH_TIMEOUT = 3_600  # 60-minute hard limit
 
 
 # -------- Batch helpers --------
@@ -426,9 +433,7 @@ def _poll_batch_until_done(  # pragma: no cover
                 client.messages.batches.cancel(batch_id)
             except Exception:
                 pass
-            raise RuntimeError(
-                f"Batch {batch_id} timed out after {_BATCH_TIMEOUT}s"
-            )
+            raise RuntimeError(f"Batch {batch_id} timed out after {_BATCH_TIMEOUT}s")
         click.echo(".", nl=False)
         time.sleep(min(_BATCH_POLL_INTERVAL, max(1, deadline - time.monotonic())))
 
@@ -448,8 +453,9 @@ def _extract_summarizer_result(
             return None, result.result.type
         msg = result.result.message
         for block in msg.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "submit_summaries":
-                return block.input, "tool_use"
+            if isinstance(block, ToolUseBlock) and block.name == "submit_summaries":
+                tool_input = block.input if isinstance(block.input, dict) else None
+                return tool_input, "tool_use"
         return None, "no_tool_use_block"
     return None, "no_result"
 
@@ -523,7 +529,9 @@ def _build_wrap_up_batch_requests(
                     system=_WRAP_UP_SYSTEM_PROMPT,
                     tools=[_WRAP_UP_TOOL],
                     tool_choice={"type": "tool", "name": "submit_wrap_up"},
-                    messages=[{"role": "user", "content": _build_wrap_up_prompt(item, body)}],
+                    messages=[
+                        {"role": "user", "content": _build_wrap_up_prompt(item, body)}
+                    ],
                 ),
             )
         )
@@ -556,9 +564,10 @@ def _extract_wrap_up_results(
             continue
         msg = result.result.message
         for block in msg.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "submit_wrap_up":
+            if isinstance(block, ToolUseBlock) and block.name == "submit_wrap_up":
+                tool_input = block.input if isinstance(block.input, dict) else {}
                 try:
-                    mapping[key] = _WrapUpResponse(**block.input).wrap_up
+                    mapping[key] = _WrapUpResponse.model_validate(tool_input).wrap_up
                 except ValidationError as e:
                     click.echo(f"  ⚠ Validation error for {cid}: {e}", err=True)
                     mapping[key] = None
@@ -638,8 +647,9 @@ def _call_wrap_up_llm(  # pragma: no cover
         msg = stream.get_final_message()
 
     for block in msg.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == "submit_wrap_up":
-            return block.input, (msg.stop_reason or "unknown"), msg
+        if isinstance(block, ToolUseBlock) and block.name == "submit_wrap_up":
+            tool_input = block.input if isinstance(block.input, dict) else None
+            return tool_input, (msg.stop_reason or "unknown"), msg
 
     return None, (msg.stop_reason or "unknown"), msg
 
@@ -679,9 +689,7 @@ def _generate_one_wrap_up(  # pragma: no cover
             last_error = f"attempt {attempt}: validation: {e}"
             continue
 
-    click.echo(
-        f"  ⚠ Wrap-up failed for {article.article.link}: {last_error}", err=True
-    )
+    click.echo(f"  ⚠ Wrap-up failed for {article.article.link}: {last_error}", err=True)
     return None
 
 
@@ -729,7 +737,9 @@ def generate_wrap_ups(  # pragma: no cover
     results: dict[tuple[int, int], str | None]
 
     if use_batch:
-        batch_requests = _build_wrap_up_batch_requests(selected, bodies, model, max_output_tokens=1200)
+        batch_requests = _build_wrap_up_batch_requests(
+            selected, bodies, model, max_output_tokens=1200
+        )
         if not batch_requests:
             return edition
 
@@ -743,7 +753,11 @@ def generate_wrap_ups(  # pragma: no cover
             try:
                 results = _generate_wrap_ups_batch(client, model, batch_requests)
                 break
-            except (anthropic.APIConnectionError, anthropic.APITimeoutError, RuntimeError) as exc:
+            except (
+                anthropic.APIConnectionError,
+                anthropic.APITimeoutError,
+                RuntimeError,
+            ) as exc:
                 last_error = str(exc)
                 click.echo(f"\n  Error on attempt {attempt}: {exc}", err=True)
                 if attempt == 2:

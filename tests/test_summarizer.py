@@ -4,10 +4,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from anthropic.types import ToolUseBlock
 
 from frankenbote.summarizer import (
     SummarizerConfig,
-    _WrapUpResponse,
     _build_user_prompt,
     _build_wrap_up_batch_requests,
     _build_wrap_up_prompt,
@@ -15,15 +15,17 @@ from frankenbote.summarizer import (
     _extract_wrap_up_results,
     _normalize_tool_input,
     _select_body,
+    _WrapUpResponse,
     load_summarizer_config,
 )
 from tests.conftest import make_article, make_curated
 
-
 # ── helpers for building mock batch results ──────────────────────────────────
 
 def _make_succeeded_result(custom_id: str, tool_name: str, tool_input: dict) -> SimpleNamespace:
-    tool_block = SimpleNamespace(type="tool_use", name=tool_name, input=tool_input)
+    tool_block = ToolUseBlock(
+        type="tool_use", id=f"toolu_{custom_id}", name=tool_name, input=tool_input
+    )
     message = SimpleNamespace(content=[tool_block])
     result = SimpleNamespace(type="succeeded", message=message)
     return SimpleNamespace(custom_id=custom_id, result=result)
@@ -317,7 +319,12 @@ class TestExtractWrapUpResults:
         assert mapping == {}
 
     def test_validation_error_stored_as_none(self):
-        bad_block = SimpleNamespace(type="tool_use", name="submit_wrap_up", input={"bad_field": "x"})
+        bad_block = ToolUseBlock(
+            type="tool_use",
+            id="toolu_bad",
+            name="submit_wrap_up",
+            input={"bad_field": "x"},
+        )
         message = SimpleNamespace(content=[bad_block])
         result_obj = SimpleNamespace(type="succeeded", message=message)
         item = SimpleNamespace(custom_id="wrapup-0-0", result=result_obj)
