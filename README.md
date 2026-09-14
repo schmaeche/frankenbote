@@ -107,7 +107,7 @@ ptw . -- -x --tb=short -q   # watch mode
 
 ### Coverage notes
 
-`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. `generate_wrap_ups()` is marked `# pragma: no cover` because it fetches article bodies over the network. All LLM calls go through the `llm/` client abstraction, so `curate()` and `summarize_edition()` are unit-tested against a scripted in-memory client and the Anthropic client against a mocked SDK. Everything else is covered at ≥ 70%.
+`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. `generate_wrap_ups()` is marked `# pragma: no cover` because it fetches article bodies over the network. All LLM calls go through the `llm/` client abstraction, so `curate()` and `summarize_edition()` are unit-tested against a scripted in-memory client and the Anthropic client against a mocked SDK. Each task in `llm/tasks/` additionally has closed-loop tests — inputs to rendered prompt, tool input to aligned outputs — with the prompts pinned against `tests/fixtures/prompts/`. Everything else is covered at ≥ 70%.
 
 ---
 
@@ -346,14 +346,15 @@ frankenbote/
 │   ├── paywall_gate.py # Applies paywall verdicts in the pipeline
 │   ├── llm/            # LLM layer — the only code that knows about providers, models, prompts
 │   │   ├── base.py     # LLMClient ABC: primitives, model selection per task, retry loops
-│   │   ├── task.py     # TaskSpec: prompt + forced tool + response model (schema derived)
+│   │   ├── types.py    # Provider-neutral request/result shapes for one tool call
+│   │   ├── task.py     # Task contract: prompt + tool + schema + rendering + interpretation
 │   │   ├── tasks/      # One module per AI step (curate, summarize, wrap_up)
 │   │   ├── config.py   # Loads config/config.yaml (provider, batch default, models)
 │   │   ├── anthropic_client.py  # Anthropic SDK implementation
 │   │   └── factory.py  # create_client(): picks the provider from config
-│   ├── curator.py      # AI curation: builds the user prompt, runs the curator task
+│   ├── curator.py      # AI curation: loads sections.yaml, runs the curator task
 │   ├── selector.py     # Priority-based article selection
-│   ├── summarizer.py   # AI summaries and wrap-ups: user prompts + result mapping
+│   ├── summarizer.py   # AI summaries and wrap-ups: body fetching + result mapping
 │   ├── renderer.py     # Jinja2 HTML rendering
 │   └── publisher.py    # SFTP publishing
 ├── templates/          # Jinja2 HTML templates
@@ -362,7 +363,7 @@ frankenbote/
 ├── output/             # Final rendered HTML (git-ignored)
 ├── tests/              # pytest test suite
 │   ├── conftest.py     # Shared factory functions
-│   └── fixtures/       # Static test data (sample RSS feed)
+│   └── fixtures/       # Static test data (sample RSS feed, golden prompts)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

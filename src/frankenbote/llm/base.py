@@ -3,19 +3,28 @@
 This module knows nothing about any concrete provider: no SDK imports, no
 credentials. It defines
 
-  - the request/result shapes providers speak (ToolCallRequest,
-    ToolCallResult),
   - the error hierarchy that providers translate their SDK exceptions into,
   - LLMClient, the abstract base with four provider primitives
     (call_tool, submit_batch, wait_for_batch, batch_results), the model
     selection for each task, and the whole-call retry loops built on top.
 
+The request/result shapes providers speak (ToolCallRequest,
+ToolCallResult) live in `llm/types.py` and are re-exported here.
+
 Every pipeline call is a *forced tool call*: one system prompt, one user
-prompt, one tool the model must invoke — described by a TaskSpec
-(`llm/task.py`, concrete tasks in `llm/tasks/`). The pipeline calls
-`run_task()` / `run_task_batch()` with a spec and user prompts; the client
-picks the model from its ModelConfig, builds the request, runs it with
-retries and returns the parsed response model.
+prompt, one tool the model must invoke — described by a Task
+(`llm/task.py`, concrete tasks in `llm/tasks/`).
+
+There are two layers to the API:
+
+  - `run_task(task, inputs)` is what the pipeline calls. It renders the
+    inputs through the task, runs the call(s) — one for a SingleCallTask,
+    one per input for a PerItemTask, batched or not — and returns a
+    TaskOutcome whose values line up one-to-one with the inputs.
+  - `run_prompt()` / `run_prompt_batch()` are the prompt-level layer it is
+    built on: give them a task and ready-made user prompts and they pick
+    the model from the client's ModelConfig, build the request, run it
+    with retries and return the parsed response model.
 
 Retry policy (identical for every caller):
   - `max_attempts` attempts (default 2, i.e. one retry), optional
@@ -33,57 +42,36 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from typing import Any, TypedDict, TypeVar
+from typing import Any, TypeVar
 
 import click
 from pydantic import BaseModel, ValidationError
 
 from frankenbote._debug import save_failure
 from frankenbote.llm.config import ModelConfig
-from frankenbote.llm.task import TaskSpec
+from frankenbote.llm.task import (
+    ItemNote,
+    PerItemTask,
+    SingleCallTask,
+    Task,
+    TaskOutcome,
+)
+from frankenbote.llm.types import ToolCallParams, ToolCallRequest, ToolCallResult
 
 T = TypeVar("T")
 M = TypeVar("M", bound=BaseModel)
+TIn = TypeVar("TIn")
+TOut = TypeVar("TOut")
 
-
-# -------- Request / result shapes --------
-
-
-class ToolCallParams(TypedDict):
-    """Everything a provider needs to run one forced tool call, except the
-    model — that is resolved by the client from the request's task."""
-
-    system: str
-    user_prompt: str
-    tool: dict[str, Any]  # JSON-schema tool: name / description / input_schema
-    max_tokens: int
-
-
-class ToolCallRequest(TypedDict):
-    """One tool call for a task, addressable by `custom_id` when batched."""
-
-    task: str  # TaskSpec.name — selects the model via ModelConfig
-    custom_id: str
-    params: ToolCallParams
-
-
-@dataclass(frozen=True)
-class ToolCallResult:
-    """Provider-neutral outcome of one tool call.
-
-    stop_reason is "tool_use" on success. Otherwise it is an anomaly label:
-    the provider's own stop reason ("max_tokens", "refusal", …), a batch
-    item status ("errored", "expired", "canceled"), "no_tool_use_block",
-    or "no_result" when a batch did not return the item at all.
-
-    raw is the provider's response object, kept only for debug dumps.
-    """
-
-    custom_id: str
-    tool_input: dict | None
-    stop_reason: str
-    raw: Any = None
+__all__ = [
+    "LLMBatchTimeout",
+    "LLMClient",
+    "LLMError",
+    "LLMTransientError",
+    "ToolCallParams",
+    "ToolCallRequest",
+    "ToolCallResult",
+]
 
 
 # -------- Errors --------
@@ -159,29 +147,115 @@ class LLMClient(ABC):
 
     # ---- task API (what the pipeline calls) ----
 
+    def run_task(
+        self,
+        task: Task[TIn, TOut, Any],
+        inputs: Sequence[TIn],
+        *,
+        on_attempt: Callable[[int], None] | None = None,
+    ) -> TaskOutcome[TOut]:
+        """Run a task over `inputs` and return outputs aligned with them.
+
+        The task renders the prompt(s) and interprets the response(s); this
+        method only decides how many calls to make and how to route them:
+
+          - SingleCallTask — one call covering every input;
+          - PerItemTask — one call per input, submitted as a single batch
+            when the client is in batch mode, otherwise run synchronously
+            one after another. A per-item failure becomes a note and the
+            task's `missing()` value; it never aborts the run.
+
+        on_attempt is called with the attempt number before each attempt at
+        the task as a whole, so the caller can print its own progress line.
+        """
+        if not inputs:
+            return TaskOutcome([], [])
+
+        if isinstance(task, SingleCallTask):
+            response = self.run_prompt(
+                task, task.render(inputs), n_items=len(inputs), on_attempt=on_attempt
+            )
+            outcome = task.interpret(response, inputs)
+        elif isinstance(task, PerItemTask):
+            outcome = (
+                self._run_per_item_batched(task, inputs, on_attempt)
+                if self.use_batch
+                else self._run_per_item_sync(task, inputs, on_attempt)
+            )
+        else:
+            raise TypeError(
+                f"{type(task).__name__} is neither a SingleCallTask "
+                "nor a PerItemTask"
+            )
+
+        if len(outcome.values) != len(inputs):
+            raise RuntimeError(
+                f"{task.label} returned {len(outcome.values)} values "
+                f"for {len(inputs)} inputs"
+            )
+        return outcome
+
+    def _run_per_item_batched(
+        self,
+        task: PerItemTask[TIn, TOut, Any],
+        inputs: Sequence[TIn],
+        on_attempt: Callable[[int], None] | None,
+    ) -> TaskOutcome[TOut]:
+        results = self.run_prompt_batch(task, task.items(inputs), on_attempt=on_attempt)
+        return task.interpret(results, len(inputs))
+
+    def _run_per_item_sync(
+        self,
+        task: PerItemTask[TIn, TOut, Any],
+        inputs: Sequence[TIn],
+        on_attempt: Callable[[int], None] | None,
+    ) -> TaskOutcome[TOut]:
+        """One synchronous call per input, each with its own retries.
+
+        A single item that keeps failing is recorded and skipped — debug
+        dumps are off here, as one thin article is not worth a dump.
+        """
+        if on_attempt is not None:
+            on_attempt(1)
+        values: list[TOut] = []
+        notes: list[ItemNote] = []
+        for index, item in enumerate(inputs):
+            try:
+                response = self.run_prompt(
+                    task, task.render(item), use_batch=False, save_debug=False
+                )
+            except RuntimeError as exc:  # includes LLMError from the provider
+                values.append(task.missing())
+                notes.append(ItemNote(index, str(exc)))
+                continue
+            values.append(task.read(response))
+        return TaskOutcome(values, notes)
+
+    # ---- prompt API (the layer run_task is built on) ----
+
     def build_request(
         self,
-        spec: TaskSpec[Any],
+        task: Task[Any, Any, Any],
         user_prompt: str,
         *,
         custom_id: str | None = None,
         n_items: int = 1,
     ) -> ToolCallRequest:
-        """Turn a task spec plus user prompt into a provider request."""
+        """Turn a task plus a ready-made user prompt into a provider request."""
         return ToolCallRequest(
-            task=spec.name,
-            custom_id=spec.name if custom_id is None else custom_id,
+            task=task.name,
+            custom_id=task.name if custom_id is None else custom_id,
             params=ToolCallParams(
-                system=spec.system_prompt,
+                system=task.system_prompt,
                 user_prompt=user_prompt,
-                tool=spec.tool,
-                max_tokens=spec.max_tokens_for(n_items),
+                tool=task.tool,
+                max_tokens=task.max_tokens_for(n_items),
             ),
         )
 
-    def run_task(
+    def run_prompt(
         self,
-        spec: TaskSpec[M],
+        task: Task[Any, Any, M],
         user_prompt: str,
         *,
         n_items: int = 1,
@@ -189,24 +263,24 @@ class LLMClient(ABC):
         on_attempt: Callable[[int], None] | None = None,
         save_debug: bool = True,
     ) -> M:
-        """Run one task call with retries and return the parsed response model.
+        """Run one call of a task with retries and return the parsed response.
 
         use_batch=None uses the client's configured default.
         """
-        request = self.build_request(spec, user_prompt, n_items=n_items)
+        request = self.build_request(task, user_prompt, n_items=n_items)
         return self.call_tool_with_retry(
             request,
-            spec.parse,
-            component=spec.name,
-            label=spec.label,
+            task.parse,
+            component=task.name,
+            label=task.label,
             use_batch=self.use_batch if use_batch is None else use_batch,
             on_attempt=on_attempt,
             save_debug=save_debug,
         )
 
-    def run_task_batch(
+    def run_prompt_batch(
         self,
-        spec: TaskSpec[Any],
+        task: Task[Any, Any, Any],
         items: Sequence[tuple[str, str]],
         *,
         n_items: int = 1,
@@ -216,16 +290,16 @@ class LLMClient(ABC):
         batch on transient errors.
 
         items are (custom_id, user_prompt) pairs. Per-item failures are not
-        retried; parse each result with `spec.parse(result.tool_input)`.
+        retried; they come back as results for the task to interpret.
         """
         requests = [
-            self.build_request(spec, prompt, custom_id=custom_id, n_items=n_items)
+            self.build_request(task, prompt, custom_id=custom_id, n_items=n_items)
             for custom_id, prompt in items
         ]
         return self.run_batch_with_retry(
             requests,
-            component=spec.name,
-            label=f"{spec.label} batch",
+            component=task.name,
+            label=f"{task.label} batch",
             on_attempt=on_attempt,
         )
 

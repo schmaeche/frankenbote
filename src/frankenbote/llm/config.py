@@ -13,7 +13,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-# The AI steps the pipeline runs. Each TaskSpec.name must be one of these,
+# The AI steps the pipeline runs. Each Task.name must be one of these,
 # and each needs a model in config.yaml (wrap_up may fall back).
 TASK_NAMES: tuple[str, ...] = ("curator", "summarizer", "wrap_up")
 

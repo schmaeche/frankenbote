@@ -12,7 +12,7 @@ from frankenbote.llm import (
     ToolCallRequest,
     ToolCallResult,
 )
-from frankenbote.llm import ModelConfig, TaskSpec
+from frankenbote.llm import ItemNote, ModelConfig, PerItemTask, SingleCallTask, TaskOutcome
 from frankenbote.llm import base as base_module
 from tests.conftest import TEST_MODELS, ScriptedLLMClient, tool_result
 
@@ -36,15 +36,50 @@ def _request(custom_id: str = "req", task: str = "curator") -> ToolCallRequest:
     )
 
 
-_SPEC: TaskSpec[_Parsed] = TaskSpec(
-    name="summarizer",
-    label="Summarizer",
-    system_prompt="SYSTEM",
-    tool_name="submit_things",
-    tool_description="desc",
-    response_model=_Parsed,
-    max_tokens=lambda n: 100 + 10 * n,
-)
+class _Doubler(SingleCallTask[int, int, _Parsed]):
+    """One call for every input; the response value is doubled per input."""
+
+    name = "summarizer"
+    label = "Summarizer"
+    system_prompt = "SYSTEM"
+    tool_name = "submit_things"
+    tool_description = "desc"
+    response_model = _Parsed
+
+    def max_tokens_for(self, n_items: int) -> int:
+        return 100 + 10 * n_items
+
+    def render(self, inputs):
+        return "|".join(str(i) for i in inputs)
+
+    def interpret(self, response, inputs):
+        return TaskOutcome([response.value * i for i in inputs])
+
+
+class _Echo(PerItemTask[str, "str | None", _Parsed]):
+    """One call per input."""
+
+    name = "wrap_up"
+    label = "Wrap-up"
+    system_prompt = "SYSTEM"
+    tool_name = "submit_thing"
+    tool_description = "desc"
+    response_model = _Parsed
+
+    def max_tokens_for(self, n_items: int) -> int:
+        return 50
+
+    def render(self, item):
+        return f"<{item}>"
+
+    def read(self, response):
+        return str(response.value)
+
+    def missing(self):
+        return None
+
+
+_SPEC = _Doubler()
 
 
 _OK = tool_result("req", {"value": 42})
@@ -371,9 +406,9 @@ class TestModelSelection:
         assert ScriptedLLMClient(use_batch=False).use_batch is False
 
 
-# ── build_request / run_task / run_task_batch ────────────────────────────────
+# ── build_request / run_prompt / run_prompt_batch ────────────────────────────
 
-class TestTaskApi:
+class TestPromptApi:
     def test_build_request_shape(self):
         c = ScriptedLLMClient()
         request = c.build_request(_SPEC, "USER", n_items=3)
@@ -392,55 +427,55 @@ class TestTaskApi:
         request = ScriptedLLMClient().build_request(_SPEC, "u", custom_id="item-7")
         assert request["custom_id"] == "item-7"
 
-    def test_run_task_uses_client_batch_default(self, no_debug):
+    def test_run_prompt_uses_client_batch_default(self, no_debug):
         c = ScriptedLLMClient([[tool_result("summarizer", {"value": 5})]])
-        parsed = c.run_task(_SPEC, "USER")
+        parsed = c.run_prompt(_SPEC, "USER")
         assert parsed == _Parsed(value=5)
         assert [n for n, _ in c.calls] == ["submit_batch", "wait_for_batch", "batch_results"]
 
-    def test_run_task_sync_when_client_configured_off(self, no_debug):
+    def test_run_prompt_sync_when_client_configured_off(self, no_debug):
         c = ScriptedLLMClient([tool_result("summarizer", {"value": 5})], use_batch=False)
-        assert c.run_task(_SPEC, "USER").value == 5
+        assert c.run_prompt(_SPEC, "USER").value == 5
         assert [n for n, _ in c.calls] == ["call_tool"]
 
-    def test_run_task_use_batch_override(self, no_debug):
+    def test_run_prompt_use_batch_override(self, no_debug):
         c = ScriptedLLMClient([tool_result("summarizer", {"value": 5})])  # default batch on
-        assert c.run_task(_SPEC, "USER", use_batch=False).value == 5
+        assert c.run_prompt(_SPEC, "USER", use_batch=False).value == 5
         assert [n for n, _ in c.calls] == ["call_tool"]
 
-    def test_run_task_passes_request_to_primitive(self, no_debug):
+    def test_run_prompt_passes_request_to_primitive(self, no_debug):
         c = ScriptedLLMClient([tool_result("summarizer", {"value": 5})], use_batch=False)
-        c.run_task(_SPEC, "USER", n_items=2)
+        c.run_prompt(_SPEC, "USER", n_items=2)
         _, request = c.calls[0]
         assert request["task"] == "summarizer"
         assert request["params"]["max_tokens"] == 120
 
-    def test_run_task_error_uses_spec_label_and_name(self, no_debug):
+    def test_run_prompt_error_uses_task_label_and_name(self, no_debug):
         bad = tool_result("summarizer", None, "max_tokens")
         c = ScriptedLLMClient([bad, bad], use_batch=False)
         with pytest.raises(RuntimeError, match="Summarizer failed twice"):
-            c.run_task(_SPEC, "USER")
+            c.run_prompt(_SPEC, "USER")
         assert no_debug[0][0] == "summarizer"
 
-    def test_run_task_parse_via_spec(self, no_debug):
+    def test_run_prompt_parse_via_task(self, no_debug):
         bad = tool_result("summarizer", {"value": "x"})
         c = ScriptedLLMClient([bad, tool_result("summarizer", {"value": 1})], use_batch=False)
-        assert c.run_task(_SPEC, "USER").value == 1
+        assert c.run_prompt(_SPEC, "USER").value == 1
 
-    def test_run_task_on_attempt_and_save_debug(self, no_debug):
+    def test_run_prompt_on_attempt_and_save_debug(self, no_debug):
         attempts = []
         bad = tool_result("summarizer", None, "refusal")
         c = ScriptedLLMClient([bad, bad], use_batch=False)
         with pytest.raises(RuntimeError) as ei:
-            c.run_task(_SPEC, "USER", on_attempt=attempts.append, save_debug=False)
+            c.run_prompt(_SPEC, "USER", on_attempt=attempts.append, save_debug=False)
         assert attempts == [1, 2]
         assert "Debug context" not in str(ei.value)
         assert no_debug == []
 
-    def test_run_task_batch_builds_one_request_per_item(self):
+    def test_run_prompt_batch_builds_one_request_per_item(self):
         results = [tool_result("a", {"value": 1}), tool_result("b", None, "errored")]
         c = ScriptedLLMClient([results])
-        out = c.run_task_batch(_SPEC, [("a", "prompt A"), ("b", "prompt B")], n_items=1)
+        out = c.run_prompt_batch(_SPEC, [("a", "prompt A"), ("b", "prompt B")], n_items=1)
         assert out == results
         _, requests = c.calls[0]
         assert [r["custom_id"] for r in requests] == ["a", "b"]
@@ -448,13 +483,142 @@ class TestTaskApi:
         assert all(r["task"] == "summarizer" for r in requests)
         assert requests[0]["params"]["max_tokens"] == 110
 
-    def test_run_task_batch_error_label(self):
+    def test_run_prompt_batch_error_label(self):
         c = ScriptedLLMClient([LLMTransientError("a"), LLMTransientError("b")])
         with pytest.raises(RuntimeError, match="Summarizer batch failed twice. Last error: b"):
-            c.run_task_batch(_SPEC, [("a", "p")])
+            c.run_prompt_batch(_SPEC, [("a", "p")])
 
-    def test_run_task_batch_on_attempt(self):
+    def test_run_prompt_batch_on_attempt(self):
         attempts = []
         c = ScriptedLLMClient([LLMTransientError("a"), [tool_result("a", {"value": 1})]])
-        c.run_task_batch(_SPEC, [("a", "p")], on_attempt=attempts.append)
+        c.run_prompt_batch(_SPEC, [("a", "p")], on_attempt=attempts.append)
         assert attempts == [1, 2]
+
+
+# ── run_task: the entry point the pipeline calls ─────────────────────────────
+
+class TestRunTaskSingleCall:
+    def test_renders_inputs_and_returns_aligned_values(self, no_debug):
+        c = ScriptedLLMClient([[tool_result("summarizer", {"value": 3})]])
+        outcome = c.run_task(_SPEC, [1, 2, 4])
+        assert outcome.values == [3, 6, 12]
+        assert outcome.notes == []
+        [request] = c.calls[0][1]
+        assert request["params"]["user_prompt"] == "1|2|4"
+        assert request["params"]["max_tokens"] == 130  # n_items == len(inputs)
+
+    def test_no_inputs_never_reaches_the_provider(self):
+        c = ScriptedLLMClient()
+        outcome = c.run_task(_SPEC, [])
+        assert outcome == TaskOutcome([], [])
+        assert c.calls == []
+
+    def test_on_attempt_reports_each_attempt(self, no_debug):
+        attempts: list[int] = []
+        c = ScriptedLLMClient(
+            [LLMTransientError("net"), tool_result("summarizer", {"value": 1})],
+            use_batch=False,
+        )
+        c.run_task(_SPEC, [1], on_attempt=attempts.append)
+        assert attempts == [1, 2]
+
+    def test_persistent_failure_still_raises(self, no_debug):
+        bad = tool_result("summarizer", None, "max_tokens")
+        c = ScriptedLLMClient([bad, bad], use_batch=False)
+        with pytest.raises(RuntimeError, match="Summarizer failed twice"):
+            c.run_task(_SPEC, [1])
+
+    def test_misaligned_task_is_caught(self, no_debug):
+        class _Broken(_Doubler):
+            def interpret(self, response, inputs):
+                return TaskOutcome([1])  # one value for two inputs
+
+        c = ScriptedLLMClient([tool_result("summarizer", {"value": 1})], use_batch=False)
+        with pytest.raises(RuntimeError, match="returned 1 values for 2 inputs"):
+            c.run_task(_Broken(), [1, 2])
+
+    def test_unknown_task_shape_is_rejected(self):
+        class _Neither:
+            name = "x"
+            label = "X"
+
+        with pytest.raises(TypeError, match="neither a SingleCallTask nor a PerItemTask"):
+            ScriptedLLMClient().run_task(_Neither(), [1])  # type: ignore[arg-type]
+
+
+class TestRunTaskPerItemBatched:
+    def test_one_batch_with_one_request_per_input(self):
+        c = ScriptedLLMClient([[
+            tool_result("wrap_up-0", {"value": 1}),
+            tool_result("wrap_up-1", {"value": 2}),
+        ]])
+        outcome = c.run_task(_Echo(), ["a", "b"])
+        assert outcome.values == ["1", "2"]
+        assert outcome.notes == []
+        _, requests = c.calls[0]
+        assert [r["custom_id"] for r in requests] == ["wrap_up-0", "wrap_up-1"]
+        assert [r["params"]["user_prompt"] for r in requests] == ["<a>", "<b>"]
+
+    def test_failed_item_becomes_a_note_and_the_missing_value(self):
+        c = ScriptedLLMClient([[
+            tool_result("wrap_up-0", None, "errored"),
+            tool_result("wrap_up-1", {"value": 2}),
+        ]])
+        outcome = c.run_task(_Echo(), ["a", "b"])
+        assert outcome.values == [None, "2"]
+        assert outcome.notes == [ItemNote(0, "errored")]
+
+    def test_whole_batch_is_retried_on_a_transient_error(self):
+        c = ScriptedLLMClient(
+            [LLMTransientError("net"), [tool_result("wrap_up-0", {"value": 1})]]
+        )
+        assert c.run_task(_Echo(), ["a"]).values == ["1"]
+
+
+class TestRunTaskPerItemSync:
+    def test_one_call_per_input(self):
+        c = ScriptedLLMClient(
+            [tool_result("wrap_up", {"value": 1}), tool_result("wrap_up", {"value": 2})],
+            use_batch=False,
+        )
+        outcome = c.run_task(_Echo(), ["a", "b"])
+        assert outcome.values == ["1", "2"]
+        assert [n for n, _ in c.calls] == ["call_tool", "call_tool"]
+        assert [r["params"]["user_prompt"] for _, r in c.calls] == ["<a>", "<b>"]
+
+    def test_renders_the_same_prompts_as_the_batch_path(self):
+        sync = ScriptedLLMClient(
+            [tool_result("wrap_up", {"value": 1})], use_batch=False
+        )
+        sync.run_task(_Echo(), ["a"])
+        batched = ScriptedLLMClient([[tool_result("wrap_up-0", {"value": 1})]])
+        batched.run_task(_Echo(), ["a"])
+        assert (
+            sync.calls[0][1]["params"]["user_prompt"]
+            == batched.calls[0][1][0]["params"]["user_prompt"]
+        )
+
+    def test_a_persistently_failing_item_is_noted_not_raised(self, no_debug):
+        bad = tool_result("wrap_up", None, "max_tokens")
+        c = ScriptedLLMClient(
+            [bad, bad, tool_result("wrap_up", {"value": 2})], use_batch=False
+        )
+        outcome = c.run_task(_Echo(), ["a", "b"])
+        assert outcome.values == [None, "2"]
+        assert outcome.notes[0].index == 0
+        assert "Wrap-up failed twice" in outcome.notes[0].reason
+
+    def test_per_item_failures_never_write_debug_dumps(self, no_debug):
+        bad = tool_result("wrap_up", None, "max_tokens")
+        c = ScriptedLLMClient([bad, bad], use_batch=False)
+        c.run_task(_Echo(), ["a"])
+        assert no_debug == []
+
+    def test_on_attempt_fires_once_for_the_whole_task(self):
+        attempts: list[int] = []
+        c = ScriptedLLMClient(
+            [tool_result("wrap_up", {"value": 1}), tool_result("wrap_up", {"value": 2})],
+            use_batch=False,
+        )
+        c.run_task(_Echo(), ["a", "b"], on_attempt=attempts.append)
+        assert attempts == [1]

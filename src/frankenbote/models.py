@@ -101,6 +101,39 @@ class CuratorResponse(BaseModel):
     decisions: list[CuratorDecision]
 
 
+# ---------------- Curator configuration ----------------
+
+class PrioritySpec(BaseModel):
+    """One geographic priority tier, as configured in sections.yaml."""
+
+    id: str
+    label: str
+    description: str
+
+
+class SectionSpec(BaseModel):
+    """One edition section, as configured in sections.yaml."""
+
+    id: str
+    display_name: str
+    description: str
+
+
+class CuratorConfig(BaseModel):
+    """Validated structure of sections.yaml -> curator block.
+
+    Lives here rather than in curator.py because the curator *task*
+    (llm/tasks/curate.py) is built from it — it supplies both the section
+    enum in the tool schema and the sections, tiers and guidance in the
+    prompt. The model is not part of this config any more — see
+    config/config.yaml.
+    """
+
+    priorities: list[PrioritySpec]
+    sections: list[SectionSpec]
+    guidance: str
+
+
 # ---------------- Edition models ----------------
 
 class EditionSection(BaseModel):

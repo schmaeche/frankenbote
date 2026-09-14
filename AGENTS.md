@@ -105,30 +105,52 @@ fetches always keep it in.
 
 ### LLM integration (llm/, curator.py, summarizer.py)
 
-Everything LLM-related lives in `llm/`; the pipeline files never name a
-provider, a model, or a prompt:
+Everything LLM-related lives in `llm/`. The split is: **a task owns what
+the model sees and how its answer is read; the pipeline owns I/O and
+domain objects.** `curator.py` and `summarizer.py` contain no prompt text,
+no tool name, no `article_index` bookkeeping and no custom-id strings —
+they prepare inputs, make one call, and apply the results.
 
 - `llm/base.py` — provider-agnostic core. `LLMClient` is the abstract base
   with four primitives (`call_tool`, `submit_batch`, `wait_for_batch`,
   `batch_results`), the **model selection** (`resolve_model(task)` reads
-  the `ModelConfig` it was constructed with), the task API the pipeline
-  calls (`run_task`, `run_task_batch`, `build_request`) and the **retry
-  loops**. Also the request/result shapes (`ToolCallRequest` carries a
-  `task` name, not a model) and the error hierarchy (`LLMError` →
-  `LLMTransientError` → `LLMBatchTimeout`, all `RuntimeError` subclasses
-  so the CLI's existing handlers report them).
-- `llm/task.py` — `TaskSpec`: one AI step, provider-neutral (name, label,
-  system prompt, forced tool name/description, Pydantic response model,
-  output-token budget, optional normalizer). The tool's JSON schema is
-  **derived from the response model** via `tool_schema()` — there is no
-  hand-written schema; add a field to the model and the schema follows.
-  Response models set `extra="forbid"` so the schema carries
-  `additionalProperties: false`.
-- `llm/tasks/` — the concrete specs: `curate.py` (`curator_task(section_ids)`,
-  a factory because the section enum comes from config), `summarize.py`
-  (`SUMMARIZER_TASK`), `wrap_up.py` (`WRAP_UP_TASK`). To add a step: new
-  module, export it from `tasks/__init__.py`, add its name to `TASK_NAMES`
-  and a model field in `llm/config.py`, and a key in `config/config.yaml`.
+  the `ModelConfig` it was constructed with) and the **retry loops**. Two
+  layers of API sit on top: `run_task(task, inputs)` — the only thing the
+  pipeline calls — renders the inputs through the task, runs the call(s)
+  and returns a `TaskOutcome`; `run_prompt()` / `run_prompt_batch()` /
+  `build_request()` are the prompt-level layer it is built on. Also the
+  error hierarchy (`LLMError` → `LLMTransientError` → `LLMBatchTimeout`,
+  all `RuntimeError` subclasses so the CLI's existing handlers report them).
+- `llm/types.py` — the request/result shapes providers speak
+  (`ToolCallRequest` carries a `task` name, not a model; `ToolCallResult`).
+  Separate from `base.py` because tasks read results back too. `base.py`
+  re-exports all three.
+- `llm/task.py` — the task contract. `Task` is the provider-neutral base
+  (name, label, system prompt, forced tool name/description, Pydantic
+  response model, `max_tokens_for()`, optional `normalize()`). The tool's
+  JSON schema is **derived from the response model** via `tool_schema()` —
+  there is no hand-written schema; add a field to the model and the schema
+  follows. Response models set `extra="forbid"` so the schema carries
+  `additionalProperties: false`. Two subclasses for the two shapes of AI
+  step:
+  - `SingleCallTask` — one call for a list of inputs, addressed by index:
+    `render(inputs) -> str`, `interpret(response, inputs) -> TaskOutcome`.
+  - `PerItemTask` — one call per input: `render(item)`, `read(response)`,
+    `missing()`. The batch custom-id scheme (`custom_id()` /
+    `parse_custom_id()`) and the mapping of results back onto inputs are
+    implemented once on the base, so construction and parsing cannot drift.
+
+  Both return a `TaskOutcome`: `values` aligned one-to-one with the inputs
+  (a task fills its own stand-in for an item the model skipped) plus
+  `notes` — `ItemNote(index, reason)` per-item problems. **Tasks never
+  print**; the pipeline logs the notes with article titles.
+- `llm/tasks/` — the concrete tasks: `curate.py` (`curator_task(config)`, a
+  factory because the section enum and the prompt both come from the
+  loaded `CuratorConfig`), `summarize.py` (`SUMMARIZER_TASK`), `wrap_up.py`
+  (`WRAP_UP_TASK`, taking `(article, body)` pairs). To add a step: new
+  module, subclass `SingleCallTask` or `PerItemTask`, export it from
+  `tasks/__init__.py`, add its name to `TASK_NAMES` and a model field in
+  `llm/config.py`, and a key in `config/config.yaml`.
 - `llm/config.py` — `config/config.yaml` loader: provider, `use_batch`
   default, one model per task (`ModelConfig.for_task()`, with the
   `wrap_up` → `summarizer` fallback).
@@ -141,20 +163,37 @@ provider, a model, or a prompt:
   required argument. To add a provider (#44): subclass `LLMClient`, add it
   to the factory and to the `provider` literal in `llm/config.py`.
 
-`curator.py` and `summarizer.py` only build the *user* prompts (article
-data with prompt-injection framing), call `client.run_task(SPEC, prompt,
-n_items=...)`, and map the parsed response back onto articles. Every call
-is a **forced tool call** (`tool_choice`), so the API guarantees
+What is left in `curator.py` and `summarizer.py` is I/O and domain
+mapping: loading `sections.yaml`, flattening the edition, fetching article
+bodies and choosing between body and feed snippet (`_select_body`), then
+writing the aligned outputs onto `CuratedArticle` / `Edition` and logging
+whatever notes came back. Tasks return per-input results
+(`CuratorDecision`, `str | None`), never `CuratedArticle` or `Edition`.
+
+`CuratorConfig` lives in `models.py`, not `curator.py`, so
+`llm/tasks/curate.py` can be built from it without importing the pipeline
+stage; `curator.py` re-exports it.
+
+Every call is a **forced tool call** (`tool_choice`), so the API guarantees
 schema-valid output. Batch vs. synchronous is a client-level setting
-(`use_batch` from config.yaml, `--batch-off` overrides per run); the
-per-article wrap-up path always runs synchronously. Retry policy, shared by
-every call: two attempts, no backoff, retry on transient errors (network,
-timeout, batch timeout), a non-`tool_use` stop reason, a missing tool
-block, or a `ValidationError` from the spec's `parse`; on the final
-failure the loop calls `_debug.save_failure()` to dump raw output to
-`data/debug/` and raises `RuntimeError`. Attempts and backoff are
+(`use_batch` from config.yaml, `--batch-off` overrides per run) and is
+handled inside `run_task`: a `PerItemTask` goes out as one batch or as one
+synchronous call per input, rendered and read by the same task code either
+way. Retry policy, shared by every call: two attempts, no backoff, retry
+on transient errors (network, timeout, batch timeout), a non-`tool_use`
+stop reason, a missing tool block, or a `ValidationError` from the task's
+`parse`; on the final failure the loop calls `_debug.save_failure()` to
+dump raw output to `data/debug/` and raises `RuntimeError`. The exception
+is a `PerItemTask` running synchronously: a persistently failing *item*
+becomes an `ItemNote` and the task's `missing()` value rather than
+aborting the run, and writes no debug dump. Attempts and backoff are
 constructor arguments of the client with no config keys — only tests
 change them. Tests inject `tests/conftest.py::ScriptedLLMClient`.
+
+**Prompt regression tests**: the rendered user prompts are pinned
+byte-for-byte against fixtures in `tests/fixtures/prompts/`. A diff there
+means the model sees something different — update the fixture
+deliberately, never to make a test pass.
 
 **Prompt language convention**: prompts are written in English (there's an
 open ticket to make output language configurable, and English source

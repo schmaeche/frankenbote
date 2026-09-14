@@ -1,19 +1,23 @@
-"""Tests for frankenbote.llm.task and the concrete tasks in llm/tasks/."""
+"""Tests for frankenbote.llm.task — the task contract itself.
+
+The concrete tasks have their own files (test_task_curate.py,
+test_task_summarize.py, test_task_wrap_up.py).
+"""
 
 import json
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from frankenbote.llm import TaskSpec, normalize_array_field, tool_schema
-from frankenbote.llm.tasks import (
-    SUMMARIZER_TASK,
-    WRAP_UP_TASK,
-    SummarizerResponse,
-    WrapUpResponse,
-    curator_task,
+from frankenbote.llm import (
+    ItemNote,
+    PerItemTask,
+    SingleCallTask,
+    TaskOutcome,
+    normalize_array_field,
+    tool_schema,
 )
-from frankenbote.models import CuratorDecision, CuratorResponse
+from tests.conftest import tool_result
 
 
 # ── tool_schema ──────────────────────────────────────────────────────────────
@@ -71,7 +75,9 @@ class TestToolSchema:
 # ── normalize_array_field ────────────────────────────────────────────────────
 
 class TestNormalizeArrayField:
-    normalize = staticmethod(normalize_array_field("things"))
+    @staticmethod
+    def normalize(tool_input: dict) -> dict:
+        return normalize_array_field(tool_input, "things")
 
     def test_list_passthrough(self):
         tool_input = {"things": [{"a": 1}]}
@@ -102,7 +108,7 @@ class TestNormalizeArrayField:
         assert result == {"things": [1], "extra": "x"}
 
 
-# ── TaskSpec ─────────────────────────────────────────────────────────────────
+# ── Task: the shared half of the contract ────────────────────────────────────
 
 class _Resp(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -110,173 +116,199 @@ class _Resp(BaseModel):
     values: list[int]
 
 
-def _spec(**overrides) -> TaskSpec[_Resp]:
-    kwargs = dict(
-        name="curator",
-        label="Curator",
-        system_prompt="SYS",
-        tool_name="submit_values",
-        tool_description="Submit values.",
-        response_model=_Resp,
-        max_tokens=lambda n: 10 * n,
-    )
-    kwargs.update(overrides)
-    return TaskSpec(**kwargs)
+class _Collect(SingleCallTask[str, int, _Resp]):
+    """Minimal SingleCallTask: renders inputs joined, returns them doubled."""
+
+    name = "curator"
+    label = "Curator"
+    system_prompt = "SYS"
+    tool_name = "submit_values"
+    tool_description = "Submit values."
+    response_model = _Resp
+
+    def max_tokens_for(self, n_items: int) -> int:
+        return 10 * n_items
+
+    def render(self, inputs):
+        return "|".join(inputs)
+
+    def interpret(self, response, inputs):
+        return TaskOutcome([v * 2 for v in response.values])
 
 
-class TestTaskSpec:
+class _Normalising(_Collect):
+    def normalize(self, tool_input: dict) -> dict:
+        return normalize_array_field(tool_input, "values")
+
+
+class TestTask:
     def test_tool_definition(self):
-        tool = _spec().tool
+        tool = _Collect().tool
         assert tool["name"] == "submit_values"
         assert tool["description"] == "Submit values."
         assert tool["input_schema"] == tool_schema(_Resp)
 
     def test_max_tokens_for(self):
-        assert _spec().max_tokens_for(4) == 40
+        assert _Collect().max_tokens_for(4) == 40
 
     def test_parse_validates(self):
-        assert _spec().parse({"values": [1, 2]}) == _Resp(values=[1, 2])
+        assert _Collect().parse({"values": [1, 2]}) == _Resp(values=[1, 2])
 
     def test_parse_raises_validation_error(self):
         with pytest.raises(ValidationError):
-            _spec().parse({"values": ["x"]})
+            _Collect().parse({"values": ["x"]})
 
     def test_parse_rejects_extra_keys(self):
         with pytest.raises(ValidationError):
-            _spec().parse({"values": [1], "extra": 1})
+            _Collect().parse({"values": [1], "extra": 1})
+
+    def test_normalize_is_identity_by_default(self):
+        tool_input = {"values": [1]}
+        assert _Collect().normalize(tool_input) is tool_input
 
     def test_parse_applies_normalize(self):
-        spec = _spec(normalize=normalize_array_field("values"))
-        assert spec.parse({"values": "[3]"}).values == [3]
+        assert _Normalising().parse({"values": "[3]"}).values == [3]
+
+
+class TestSingleCallTask:
+    def test_render_receives_every_input(self):
+        assert _Collect().render(["a", "b"]) == "a|b"
+
+    def test_interpret_returns_aligned_values(self):
+        outcome = _Collect().interpret(_Resp(values=[1, 2]), ["a", "b"])
+        assert outcome.values == [2, 4]
+        assert outcome.notes == []
+
+
+# ── PerItemTask ──────────────────────────────────────────────────────────────
+
+class _WrapResp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None
+
+
+class _PerItem(PerItemTask[str, "str | None", _WrapResp]):
+    """Minimal PerItemTask: one call per string, echoing it back."""
+
+    name = "wrap_up"
+    label = "Wrap-up"
+    system_prompt = "SYS"
+    tool_name = "submit_text"
+    tool_description = "Submit text."
+    response_model = _WrapResp
+
+    def max_tokens_for(self, n_items: int) -> int:
+        return 100
+
+    def render(self, item):
+        return f"<{item}>"
+
+    def read(self, response):
+        return response.text
+
+    def missing(self):
+        return None
+
+
+class TestPerItemAddressing:
+    def test_custom_id_uses_the_task_name(self):
+        assert _PerItem().custom_id(3) == "wrap_up-3"
+
+    def test_custom_id_round_trips(self):
+        task = _PerItem()
+        assert task.parse_custom_id(task.custom_id(17)) == 17
+
+    def test_parse_rejects_a_foreign_prefix(self):
+        assert _PerItem().parse_custom_id("summarizer-0") is None
+
+    def test_parse_rejects_a_non_numeric_index(self):
+        assert _PerItem().parse_custom_id("wrap_up-x") is None
+
+    def test_items_pairs_each_input_with_its_id(self):
+        assert _PerItem().items(["a", "b"]) == [
+            ("wrap_up-0", "<a>"),
+            ("wrap_up-1", "<b>"),
+        ]
+
+
+class TestPerItemInterpret:
+    def test_results_land_on_their_own_input(self):
+        outcome = _PerItem().interpret(
+            [
+                tool_result("wrap_up-1", {"text": "B"}),
+                tool_result("wrap_up-0", {"text": "A"}),
+            ],
+            2,
+        )
+        assert outcome.values == ["A", "B"]
+        assert outcome.notes == []
+
+    def test_absent_result_falls_back_to_missing(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-0", {"text": "A"})], 3)
+        assert outcome.values == ["A", None, None]
+        assert outcome.notes == []
+
+    def test_null_value_is_not_an_error(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-0", {"text": None})], 1)
+        assert outcome.values == [None]
+        assert outcome.notes == []
+
+    def test_errored_item_is_noted(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-0", None, "errored")], 1)
+        assert outcome.values == [None]
+        assert outcome.notes == [ItemNote(0, "errored")]
+
+    def test_expired_item_is_noted(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-0", None, "expired")], 1)
+        assert outcome.notes == [ItemNote(0, "expired")]
+
+    def test_missing_tool_block_is_noted(self):
+        outcome = _PerItem().interpret(
+            [tool_result("wrap_up-0", None, "no_tool_use_block")], 1
+        )
+        assert outcome.notes == [ItemNote(0, "no_tool_use_block")]
+
+    def test_validation_failure_is_noted_and_does_not_raise(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-0", {"bad": 1})], 1)
+        assert outcome.values == [None]
+        assert outcome.notes[0].index == 0
+        assert outcome.notes[0].reason.startswith("validation:")
+
+    def test_malformed_custom_id_is_noted_without_an_index(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-x", {"text": "A"})], 1)
+        assert outcome.values == [None]
+        assert outcome.notes == [ItemNote(None, "unusable custom id 'wrap_up-x'")]
+
+    def test_foreign_custom_id_is_noted_without_an_index(self):
+        outcome = _PerItem().interpret([tool_result("summarizer", {})], 1)
+        assert outcome.values == [None]
+        assert outcome.notes[0].index is None
+
+    def test_out_of_range_index_is_noted_without_an_index(self):
+        outcome = _PerItem().interpret([tool_result("wrap_up-9", {"text": "A"})], 1)
+        assert outcome.values == [None]
+        assert outcome.notes[0].index is None
+
+    def test_one_bad_item_does_not_cost_the_others(self):
+        outcome = _PerItem().interpret(
+            [
+                tool_result("wrap_up-0", {"text": "A"}),
+                tool_result("wrap_up-1", None, "errored"),
+                tool_result("wrap_up-2", {"text": "C"}),
+            ],
+            3,
+        )
+        assert outcome.values == ["A", None, "C"]
+        assert outcome.notes == [ItemNote(1, "errored")]
+
+
+# ── TaskOutcome ──────────────────────────────────────────────────────────────
+
+class TestTaskOutcome:
+    def test_notes_default_to_empty(self):
+        assert TaskOutcome([1, 2]).notes == []
 
     def test_frozen(self):
         with pytest.raises(Exception):
-            _spec().name = "x"  # type: ignore[misc]
-
-
-# ── curator_task ─────────────────────────────────────────────────────────────
-
-class TestCuratorTask:
-    def test_identity(self):
-        task = curator_task(["politik", "sport"])
-        assert task.name == "curator"
-        assert task.label == "Curator"
-        assert task.tool_name == "submit_decisions"
-        assert "submit_decisions" in task.system_prompt
-        assert "UNTRUSTED INPUT" in task.system_prompt
-
-    def test_schema_restricts_section_to_configured_ids(self):
-        schema = curator_task(["politik", "sport"]).tool["input_schema"]
-        section = schema["$defs"]["CuratorDecision"]["properties"]["section"]
-        assert {"enum": ["politik", "sport"], "type": "string"} in section["anyOf"]
-        assert {"type": "null"} in section["anyOf"]
-
-    def test_schema_shape(self):
-        schema = curator_task(["a"]).tool["input_schema"]
-        assert schema["required"] == ["decisions"]
-        assert schema["additionalProperties"] is False
-        decision = schema["$defs"]["CuratorDecision"]
-        assert decision["required"] == [
-            "article_index", "section", "priority", "relevance_score", "rationale"
-        ]
-        assert decision["additionalProperties"] is False
-        assert decision["properties"]["rationale"] == {"maxLength": 300, "type": "string"}
-        assert schema["$defs"]["Priority"]["enum"] == ["P1", "P2", "P3", "P4"]
-        assert "title" not in decision
-
-    def test_parse_accepts_known_section_and_null(self):
-        task = curator_task(["politik"])
-        resp = task.parse({"decisions": [
-            {"article_index": 0, "section": "politik", "priority": "P1",
-             "relevance_score": 5.0, "rationale": "ok"},
-            {"article_index": 1, "section": None, "priority": "P4",
-             "relevance_score": 0.0, "rationale": "drop"},
-        ]})
-        assert isinstance(resp, CuratorResponse)
-        assert all(isinstance(d, CuratorDecision) for d in resp.decisions)
-        assert resp.decisions[0].section == "politik"
-        assert resp.decisions[1].section is None
-
-    def test_parse_rejects_unknown_section(self):
-        with pytest.raises(ValidationError):
-            curator_task(["politik"]).parse({"decisions": [
-                {"article_index": 0, "section": "sport", "priority": "P1",
-                 "relevance_score": 5.0, "rationale": "ok"},
-            ]})
-
-    def test_parse_normalises_json_string(self):
-        decisions = [{"article_index": 0, "section": "politik", "priority": "P2",
-                      "relevance_score": 1.0, "rationale": "r"}]
-        resp = curator_task(["politik"]).parse({"decisions": json.dumps(decisions)})
-        assert resp.decisions[0].priority.value == "P2"
-
-    def test_max_tokens_formula(self):
-        task = curator_task(["a"])
-        assert task.max_tokens_for(1) == 650
-        assert task.max_tokens_for(10) == 2000
-        assert task.max_tokens_for(1_000_000) == 48000
-
-    def test_requires_section_ids(self):
-        with pytest.raises(ValueError, match="at least one section id"):
-            curator_task([])
-
-
-# ── SUMMARIZER_TASK ──────────────────────────────────────────────────────────
-
-class TestSummarizerTask:
-    def test_identity(self):
-        assert SUMMARIZER_TASK.name == "summarizer"
-        assert SUMMARIZER_TASK.label == "Summarizer"
-        assert SUMMARIZER_TASK.tool_name == "submit_summaries"
-        assert "submit_summaries" in SUMMARIZER_TASK.system_prompt
-        assert "UNVERTRAUTE" in SUMMARIZER_TASK.system_prompt
-
-    def test_schema(self):
-        schema = SUMMARIZER_TASK.tool["input_schema"]
-        assert schema["required"] == ["summaries"]
-        assert schema["additionalProperties"] is False
-        item = schema["$defs"]["SummaryDecision"]
-        assert item["required"] == ["article_index", "summary"]
-        assert item["properties"]["article_index"] == {"minimum": 0, "type": "integer"}
-        assert {"type": "null"} in item["properties"]["summary"]["anyOf"]
-
-    def test_parse(self):
-        resp = SUMMARIZER_TASK.parse({"summaries": [{"article_index": 0, "summary": None}]})
-        assert isinstance(resp, SummarizerResponse)
-        assert resp.summaries[0].summary is None
-
-    def test_parse_normalises_json_string(self):
-        resp = SUMMARIZER_TASK.parse({"summaries": '[{"article_index": 2, "summary": "S."}]'})
-        assert resp.summaries[0].article_index == 2
-
-    def test_max_tokens_formula(self):
-        assert SUMMARIZER_TASK.max_tokens_for(1) == 320
-        assert SUMMARIZER_TASK.max_tokens_for(1_000_000) == 48000
-
-
-# ── WRAP_UP_TASK ─────────────────────────────────────────────────────────────
-
-class TestWrapUpTask:
-    def test_identity(self):
-        assert WRAP_UP_TASK.name == "wrap_up"
-        assert WRAP_UP_TASK.label == "Wrap-up"
-        assert WRAP_UP_TASK.tool_name == "submit_wrap_up"
-        assert "German" in WRAP_UP_TASK.system_prompt
-        assert "UNTRUSTED" in WRAP_UP_TASK.system_prompt
-
-    def test_schema(self):
-        schema = WRAP_UP_TASK.tool["input_schema"]
-        assert schema["required"] == ["wrap_up"]
-        assert schema["additionalProperties"] is False
-
-    def test_parse_string_and_null(self):
-        assert WRAP_UP_TASK.parse({"wrap_up": "Text"}).wrap_up == "Text"
-        assert isinstance(WRAP_UP_TASK.parse({"wrap_up": None}), WrapUpResponse)
-
-    def test_parse_missing_field_raises(self):
-        with pytest.raises(ValidationError):
-            WRAP_UP_TASK.parse({})
-
-    def test_fixed_max_tokens(self):
-        assert WRAP_UP_TASK.max_tokens_for(1) == 1200
-        assert WRAP_UP_TASK.max_tokens_for(50) == 1200
+            TaskOutcome([1]).values = [2]  # type: ignore[misc]

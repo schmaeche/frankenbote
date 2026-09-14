@@ -6,6 +6,10 @@ name directly:
     from frankenbote.llm import LLMClient          # type of the injected client
     from frankenbote.llm.tasks import SUMMARIZER_TASK
 
+and run one AI step with
+
+    outcome = client.run_task(SUMMARIZER_TASK, articles)   # aligned with articles
+
 The CLI builds the client once per run:
 
     config = load_llm_config("config/config.yaml")
@@ -24,18 +28,30 @@ from frankenbote.llm.base import (
 )
 from frankenbote.llm.config import TASK_NAMES, LLMConfig, ModelConfig, load_llm_config
 from frankenbote.llm.factory import create_client
-from frankenbote.llm.task import TaskSpec, normalize_array_field, tool_schema
+from frankenbote.llm.task import (
+    ItemNote,
+    PerItemTask,
+    SingleCallTask,
+    Task,
+    TaskOutcome,
+    normalize_array_field,
+    tool_schema,
+)
 
 __all__ = [
-    "TASK_NAMES",
     "AnthropicLLMClient",
+    "ItemNote",
     "LLMBatchTimeout",
     "LLMClient",
     "LLMConfig",
     "LLMError",
     "LLMTransientError",
     "ModelConfig",
-    "TaskSpec",
+    "PerItemTask",
+    "SingleCallTask",
+    "TASK_NAMES",
+    "Task",
+    "TaskOutcome",
     "ToolCallParams",
     "ToolCallRequest",
     "ToolCallResult",

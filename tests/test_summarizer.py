@@ -1,62 +1,22 @@
-"""Tests for frankenbote.summarizer — pure helpers plus the public entry points
-against a scripted LLM client (no API calls)."""
+"""Tests for frankenbote.summarizer — body selection and the orchestration of
+summarize_edition() against a scripted LLM client (no API calls).
+
+Prompt rendering and the reading of the model's answers belong to the
+summarizer and wrap-up tasks (test_task_summarize.py, test_task_wrap_up.py).
+"""
 
 from datetime import datetime, timezone
 
 import pytest
 
-from frankenbote.llm import LLMError, LLMTransientError
+from frankenbote.llm import LLMTransientError
 from frankenbote.models import Edition, EditionSection, EditionStats
 from frankenbote.summarizer import (
-    _build_user_prompt,
-    _build_wrap_up_batch_items,
-    _build_wrap_up_prompt,
-    _generate_one_wrap_up,
-    _map_wrap_up_results,
     _select_body,
+    _wrap_up_inputs,
     summarize_edition,
 )
 from tests.conftest import ScriptedLLMClient, make_article, make_curated, tool_result
-
-
-# ── _build_user_prompt ───────────────────────────────────────────────────────
-
-class TestBuildUserPrompt:
-    def test_prompt_contains_article_count(self):
-        articles = [
-            make_curated(article=make_article(link=f"https://example.com/{i}"))
-            for i in range(4)
-        ]
-        prompt = _build_user_prompt(articles)
-        assert "4 Einträge erwartet" in prompt
-
-    def test_prompt_contains_index_zero(self):
-        articles = [make_curated()]
-        prompt = _build_user_prompt(articles)
-        assert 'index="0"' in prompt
-
-    def test_lead_attribute_appears(self):
-        lead_article = make_curated(is_lead=True)
-        prompt = _build_user_prompt([lead_article])
-        assert 'is_lead="true"' in prompt
-
-    def test_non_lead_attribute_appears(self):
-        non_lead = make_curated(is_lead=False)
-        prompt = _build_user_prompt([non_lead])
-        assert 'is_lead="false"' in prompt
-
-    def test_article_title_in_prompt(self):
-        article = make_curated(article=make_article(title="Unique Headline ABC"))
-        prompt = _build_user_prompt([article])
-        assert "Unique Headline ABC" in prompt
-
-    def test_count_in_closing_line_matches_input(self):
-        articles = [
-            make_curated(article=make_article(link=f"https://example.com/{i}"))
-            for i in range(7)
-        ]
-        prompt = _build_user_prompt(articles)
-        assert "7 Einträge erwartet" in prompt
 
 
 # ── _select_body ─────────────────────────────────────────────────────────────
@@ -87,72 +47,9 @@ class TestSelectBody:
         assert _select_body(art, "  ") is None
 
 
-# ── _build_wrap_up_prompt ────────────────────────────────────────────────────
+# ── _wrap_up_inputs ──────────────────────────────────────────────────────────
 
-class TestBuildWrapUpPrompt:
-    def test_contains_title(self):
-        art = make_curated(article=make_article(title="Unique Headline XYZ"))
-        prompt = _build_wrap_up_prompt(art, "Body text here.")
-        assert "Unique Headline XYZ" in prompt
-
-    def test_contains_body(self):
-        prompt = _build_wrap_up_prompt(make_curated(), "Distinctive body content 12345.")
-        assert "Distinctive body content 12345." in prompt
-
-    def test_contains_source_name(self):
-        art = make_curated(article=make_article(source_name="Frankenpost"))
-        prompt = _build_wrap_up_prompt(art, "Body.")
-        assert "Frankenpost" in prompt
-
-    def test_mentions_the_tool(self):
-        prompt = _build_wrap_up_prompt(make_curated(), "Body.")
-        assert "submit_wrap_up" in prompt
-
-
-# ── _map_wrap_up_results ─────────────────────────────────────────────────────
-
-class TestMapWrapUpResults:
-    def test_succeeded_items_mapped(self):
-        results = [
-            tool_result("wrapup-0-0", {"wrap_up": "Text A."}),
-            tool_result("wrapup-1-2", {"wrap_up": "Text B."}),
-        ]
-        mapping = _map_wrap_up_results(results)
-        assert mapping[(0, 0)] == "Text A."
-        assert mapping[(1, 2)] == "Text B."
-
-    def test_llm_null_wrap_up_stored_as_none(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", {"wrap_up": None})])
-        assert mapping[(0, 0)] is None
-
-    def test_errored_item_mapped_to_none(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-0-1", None, "errored")])
-        assert mapping[(0, 1)] is None
-
-    def test_expired_item_mapped_to_none(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-2-0", None, "expired")])
-        assert mapping[(2, 0)] is None
-
-    def test_malformed_custom_id_skipped(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-notanint-x", {"wrap_up": "x"})])
-        assert mapping == {}
-
-    def test_non_wrapup_custom_id_ignored(self):
-        mapping = _map_wrap_up_results([tool_result("summarizer", {})])
-        assert mapping == {}
-
-    def test_validation_error_stored_as_none(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", {"bad_field": "x"})])
-        assert mapping[(0, 0)] is None
-
-    def test_no_tool_use_block_in_succeeded_result(self):
-        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", None, "no_tool_use_block")])
-        assert mapping[(0, 0)] is None
-
-
-# ── _build_wrap_up_batch_items ───────────────────────────────────────────────
-
-class TestBuildWrapUpBatchItems:
+class TestWrapUpInputs:
     def _make_selected(self, n: int):
         return [
             (s, a, make_curated(article=make_article(
@@ -163,30 +60,26 @@ class TestBuildWrapUpBatchItems:
             for s, a in [(0, 0), (0, 1), (1, 0)][:n]
         ]
 
-    def test_custom_id_format(self):
-        selected = self._make_selected(2)
-        bodies = {item.article.link: "Body text." for _, _, item in selected}
-        items = _build_wrap_up_batch_items(selected, bodies)
-        assert [custom_id for custom_id, _ in items] == ["wrapup-0-0", "wrapup-0-1"]
-
-    def test_item_count_matches_articles_with_bodies(self):
+    def test_positions_and_items_stay_parallel(self):
         selected = self._make_selected(3)
         bodies = {item.article.link: "Body." for _, _, item in selected}
-        assert len(_build_wrap_up_batch_items(selected, bodies)) == 3
+        positions, items = _wrap_up_inputs(selected, bodies)
+        assert positions == [(0, 0), (0, 1), (1, 0)]
+        assert [article.article.title for article, _ in items] == [
+            "Article 0-0", "Article 0-1", "Article 1-0"
+        ]
 
-    def test_prompt_uses_fetched_body(self):
+    def test_prefers_the_fetched_body(self):
         selected = self._make_selected(1)
         bodies = {selected[0][2].article.link: "Distinctive fetched body."}
-        [(_, prompt)] = _build_wrap_up_batch_items(selected, bodies)
-        assert "Distinctive fetched body." in prompt
-        assert "Article 0-0" in prompt
+        _, items = _wrap_up_inputs(selected, bodies)
+        assert items[0][1] == "Distinctive fetched body."
 
-    def test_prompt_falls_back_to_feed_snippet(self):
-        selected = self._make_selected(1)
-        [(_, prompt)] = _build_wrap_up_batch_items(selected, {})
-        assert "A feed snippet." in prompt
+    def test_falls_back_to_the_feed_snippet(self):
+        _, items = _wrap_up_inputs(self._make_selected(1), {})
+        assert items[0][1] == "A feed snippet."
 
-    def test_articles_without_body_excluded(self):
+    def test_articles_without_usable_text_are_dropped(self):
         # _select_body returns None only when both fetched body AND feed summary are absent.
         first = (0, 0, make_curated(article=make_article(
             link="https://example.com/0-0", summary="Feed snippet."
@@ -198,16 +91,16 @@ class TestBuildWrapUpBatchItems:
             link="https://example.com/1-0", summary=""
         )))
         bodies = {first[2].article.link: "Body text."}
-        items = _build_wrap_up_batch_items([first, second, third], bodies)
+        positions, items = _wrap_up_inputs([first, second, third], bodies)
+        assert positions == [(0, 0)]
         assert len(items) == 1
-        assert items[0][0] == "wrapup-0-0"
 
-    def test_all_no_body_returns_empty(self):
+    def test_all_without_text_returns_nothing(self):
         selected = [
             (0, 0, make_curated(article=make_article(link="https://example.com/0", summary=""))),
             (0, 1, make_curated(article=make_article(link="https://example.com/1", summary=""))),
         ]
-        assert _build_wrap_up_batch_items(selected, {}) == []
+        assert _wrap_up_inputs(selected, {}) == ([], [])
 
 
 # ── summarize_edition() ──────────────────────────────────────────────────────
@@ -291,40 +184,3 @@ class TestSummarizeEdition:
         client = ScriptedLLMClient([bad, bad], use_batch=False)
         with pytest.raises(RuntimeError, match="Summarizer"):
             summarize_edition(_make_edition([make_curated()]), client)
-
-
-# ── _generate_one_wrap_up() ──────────────────────────────────────────────────
-
-class TestGenerateOneWrapUp:
-    def test_returns_wrap_up_text(self):
-        client = ScriptedLLMClient([tool_result("wrap_up", {"wrap_up": "Langer Text."})])
-        out = _generate_one_wrap_up(client, make_curated(), "Body.")
-        assert out == "Langer Text."
-        [(name, request)] = client.calls
-        assert name == "call_tool"  # always synchronous, even with batch on
-        assert request["task"] == "wrap_up"
-        assert request["params"]["tool"]["name"] == "submit_wrap_up"
-        assert request["params"]["max_tokens"] == 1200
-        assert "Body." in request["params"]["user_prompt"]
-
-    def test_null_wrap_up_returns_none(self):
-        client = ScriptedLLMClient([tool_result("wrap_up", {"wrap_up": None})])
-        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
-
-    def test_network_error_retried_then_ok(self):
-        client = ScriptedLLMClient([LLMTransientError("net"), tool_result("wrap_up", {"wrap_up": "T."})])
-        assert _generate_one_wrap_up(client, make_curated(), "Body.") == "T."
-
-    def test_persistent_failure_returns_none_without_raising(self, monkeypatch):
-        import frankenbote.llm.base as base_module
-        dumps = []
-        monkeypatch.setattr(base_module, "save_failure", lambda *a: dumps.append(a) or "x")
-        bad = tool_result("wrap_up", None, "max_tokens")
-        client = ScriptedLLMClient([bad, bad])
-        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
-        assert dumps == []  # per-article wrap-ups never write debug dumps
-
-    def test_non_transient_api_error_returns_none(self):
-        client = ScriptedLLMClient([LLMError("400 bad request")])
-        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
-        assert len(client.calls) == 1

@@ -1,18 +1,18 @@
-"""Tests for frankenbote.curator — pure helpers plus curate() against a scripted LLM client."""
+"""Tests for frankenbote.curator — config loading plus curate()'s orchestration
+against a scripted LLM client.
+
+Prompt rendering and the reading of the model's decisions belong to the
+curator task and are tested in test_task_curate.py.
+"""
 
 import json
 import textwrap
 
 import pytest
 
-from frankenbote.curator import (
-    _build_user_prompt,
-    _merge_decisions,
-    curate,
-    load_curator_config,
-)
+from frankenbote.curator import curate, load_curator_config
 from frankenbote.llm import LLMTransientError
-from frankenbote.models import CuratorDecision, Priority
+from frankenbote.models import Priority
 from tests.conftest import (
     ScriptedLLMClient,
     make_article,
@@ -87,96 +87,6 @@ class TestLoadCuratorConfig:
             load_curator_config(cfg)
 
 
-# ── _merge_decisions ─────────────────────────────────────────────────────────
-
-
-class TestMergeDecisions:
-    def _make_decision(
-        self, idx: int, section: str | None = "politik"
-    ) -> CuratorDecision:
-        return CuratorDecision(
-            article_index=idx,
-            section=section,
-            priority=Priority.P1,
-            relevance_score=7.0,
-            rationale="Test rationale.",
-        )
-
-    def test_article_matched_by_index(self):
-        articles = [make_article(link="https://example.com/0")]
-        decisions = [self._make_decision(0, section="wirtschaft")]
-        merged = _merge_decisions(articles, decisions)
-        assert merged[0].section == "wirtschaft"
-
-    def test_missing_decision_gets_sentinel(self):
-        articles = [make_article()]
-        merged = _merge_decisions(articles, [])  # no decisions returned
-        assert merged[0].section is None
-        assert merged[0].priority == Priority.P4
-        assert merged[0].relevance_score == 0.0
-
-    def test_missing_decision_rationale_indicates_missing(self):
-        articles = [make_article()]
-        merged = _merge_decisions(articles, [])
-        assert "no decision" in merged[0].rationale.lower()
-
-    def test_index_order_independent(self):
-        # Decision for index 1 comes before decision for index 0
-        articles = [
-            make_article(link="https://example.com/0"),
-            make_article(link="https://example.com/1"),
-        ]
-        decisions = [
-            self._make_decision(1, section="kultur"),
-            self._make_decision(0, section="wirtschaft"),
-        ]
-        merged = _merge_decisions(articles, decisions)
-        assert merged[0].section == "wirtschaft"
-        assert merged[1].section == "kultur"
-
-    def test_output_length_equals_input_length(self):
-        articles = [make_article(link=f"https://example.com/{i}") for i in range(5)]
-        decisions = [self._make_decision(i) for i in range(3)]  # partial decisions
-        merged = _merge_decisions(articles, decisions)
-        assert len(merged) == 5
-
-    def test_section_none_decision_preserved(self):
-        articles = [make_article()]
-        decisions = [self._make_decision(0, section=None)]
-        merged = _merge_decisions(articles, decisions)
-        assert merged[0].section is None
-
-
-# ── _build_user_prompt ───────────────────────────────────────────────────────
-
-
-class TestBuildUserPrompt:
-    def test_prompt_contains_article_index(self):
-        articles = [make_article(title="Test Article")]
-        config = make_curator_config()
-        prompt = _build_user_prompt(articles, config)
-        assert 'index="0"' in prompt
-
-    def test_prompt_contains_expected_count(self):
-        articles = [make_article(link=f"https://example.com/{i}") for i in range(3)]
-        config = make_curator_config()
-        prompt = _build_user_prompt(articles, config)
-        assert "3 decisions expected" in prompt
-
-    def test_prompt_contains_section_ids(self):
-        articles = [make_article()]
-        config = make_curator_config()
-        prompt = _build_user_prompt(articles, config)
-        assert "politik_verwaltung" in prompt
-        assert "wirtschaft" in prompt
-
-    def test_prompt_contains_article_title(self):
-        articles = [make_article(title="Unique Title XYZ")]
-        config = make_curator_config()
-        prompt = _build_user_prompt(articles, config)
-        assert "Unique Title XYZ" in prompt
-
-
 # ── curate() ─────────────────────────────────────────────────────────────────
 
 
@@ -232,6 +142,22 @@ class TestCurate:
         assert params["max_tokens"] == 500 + 150 * 2
         assert '<article index="0"' in params["user_prompt"]
         assert "UNTRUSTED INPUT" in params["system"]
+
+    def test_missing_decision_becomes_the_sentinel_article(self):
+        # The task fills the gap; curate() still returns one article per input.
+        client = ScriptedLLMClient(
+            [[tool_result("curator", {"decisions": [_decision(0)]})]]
+        )
+        curated = curate(
+            [make_article(title="A"), make_article(title="B", link="https://e.com/b")],
+            make_curator_config(),
+            client,
+        )
+        assert [c.article.title for c in curated] == ["A", "B"]
+        assert curated[1].section is None
+        assert curated[1].priority is Priority.P4
+        assert curated[1].relevance_score == 0.0
+        assert "no decision" in curated[1].rationale.lower()
 
     def test_tool_schema_enumerates_configured_sections(self):
         client = ScriptedLLMClient(
