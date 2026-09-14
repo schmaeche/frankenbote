@@ -19,7 +19,7 @@ llm:
   # One model per AI step. Pinned so behaviour is reproducible.
   models:
     # Curation: classifies every candidate into a section and priority.
-    curator: claude-sonnet-4-6
+    curator: claude-sonnet-5
 
     # Summaries: short German digest per article. Cheaper/faster model.
     summarizer: claude-haiku-4-5-20251001
