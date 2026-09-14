@@ -41,7 +41,11 @@ docker compose run --rm test
 a live SFTP server or live Anthropic API calls.
 
 There is no linter/formatter configured in `pyproject.toml` — don't assume
-`ruff`/`black`/`mypy` are wired in without checking first.
+`ruff`/`black`/`mypy` are wired in without checking first. Editors may still
+surface ruff findings via IDE integration even though it isn't part of the
+project's own toolchain. When you touch a file for a task, it's fine to fix
+ruff issues in that file as part of the change; don't do a repo-wide ruff
+cleanup unless asked.
 
 ## Architecture
 
