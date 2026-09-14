@@ -1,40 +1,27 @@
-"""Tests for frankenbote.summarizer — pure helpers only (no API calls)."""
+"""Tests for frankenbote.summarizer — pure helpers plus the public entry points
+against a scripted LLM client (no API calls)."""
 
 import json
-from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
-from anthropic.types import ToolUseBlock
 
+from frankenbote.llm import LLMError, LLMTransientError
+from frankenbote.models import Edition, EditionSection, EditionStats
 from frankenbote.summarizer import (
     SummarizerConfig,
     _build_user_prompt,
     _build_wrap_up_batch_requests,
     _build_wrap_up_prompt,
-    _extract_summarizer_result,
-    _extract_wrap_up_results,
+    _generate_one_wrap_up,
+    _map_wrap_up_results,
     _normalize_tool_input,
     _select_body,
     _WrapUpResponse,
     load_summarizer_config,
+    summarize_edition,
 )
-from tests.conftest import make_article, make_curated
-
-# ── helpers for building mock batch results ──────────────────────────────────
-
-def _make_succeeded_result(custom_id: str, tool_name: str, tool_input: dict) -> SimpleNamespace:
-    tool_block = ToolUseBlock(
-        type="tool_use", id=f"toolu_{custom_id}", name=tool_name, input=tool_input
-    )
-    message = SimpleNamespace(content=[tool_block])
-    result = SimpleNamespace(type="succeeded", message=message)
-    return SimpleNamespace(custom_id=custom_id, result=result)
-
-
-def _make_failed_result(custom_id: str, result_type: str) -> SimpleNamespace:
-    result = SimpleNamespace(type=result_type)
-    return SimpleNamespace(custom_id=custom_id, result=result)
-
+from tests.conftest import ScriptedLLMClient, make_article, make_curated, tool_result
 
 # ── _normalize_tool_input ────────────────────────────────────────────────────
 
@@ -240,103 +227,44 @@ class TestWrapUpResponse:
             _WrapUpResponse()
 
 
-# ── _extract_summarizer_result ───────────────────────────────────────────────
+# ── _map_wrap_up_results ─────────────────────────────────────────────────────
 
-class TestExtractSummarizerResult:
-    _TOOL_INPUT = {"summaries": [{"article_index": 0, "summary": "Ein kurzer Text."}]}
-
-    def test_succeeded_returns_tool_input_and_tool_use(self):
-        results = [_make_succeeded_result("summarizer", "submit_summaries", self._TOOL_INPUT)]
-        tool_input, stop_reason = _extract_summarizer_result(results)
-        assert stop_reason == "tool_use"
-        assert tool_input == self._TOOL_INPUT
-
-    def test_errored_returns_none_and_errored(self):
-        results = [_make_failed_result("summarizer", "errored")]
-        tool_input, stop_reason = _extract_summarizer_result(results)
-        assert tool_input is None
-        assert stop_reason == "errored"
-
-    def test_expired_returns_none_and_expired(self):
-        results = [_make_failed_result("summarizer", "expired")]
-        tool_input, stop_reason = _extract_summarizer_result(results)
-        assert tool_input is None
-        assert stop_reason == "expired"
-
-    def test_missing_custom_id_returns_no_result(self):
-        results = [_make_succeeded_result("something-else", "submit_summaries", self._TOOL_INPUT)]
-        tool_input, stop_reason = _extract_summarizer_result(results)
-        assert tool_input is None
-        assert stop_reason == "no_result"
-
-    def test_empty_iterator_returns_no_result(self):
-        tool_input, stop_reason = _extract_summarizer_result([])
-        assert tool_input is None
-        assert stop_reason == "no_result"
-
-    def test_succeeded_but_wrong_tool_block(self):
-        results = [_make_succeeded_result("summarizer", "other_tool", self._TOOL_INPUT)]
-        tool_input, stop_reason = _extract_summarizer_result(results)
-        assert tool_input is None
-        assert stop_reason == "no_tool_use_block"
-
-
-# ── _extract_wrap_up_results ─────────────────────────────────────────────────
-
-class TestExtractWrapUpResults:
+class TestMapWrapUpResults:
     def test_succeeded_items_mapped(self):
         results = [
-            _make_succeeded_result("wrapup-0-0", "submit_wrap_up", {"wrap_up": "Text A."}),
-            _make_succeeded_result("wrapup-1-2", "submit_wrap_up", {"wrap_up": "Text B."}),
+            tool_result("wrapup-0-0", {"wrap_up": "Text A."}),
+            tool_result("wrapup-1-2", {"wrap_up": "Text B."}),
         ]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results(results)
         assert mapping[(0, 0)] == "Text A."
         assert mapping[(1, 2)] == "Text B."
 
     def test_llm_null_wrap_up_stored_as_none(self):
-        results = [_make_succeeded_result("wrapup-0-0", "submit_wrap_up", {"wrap_up": None})]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", {"wrap_up": None})])
         assert mapping[(0, 0)] is None
 
     def test_errored_item_mapped_to_none(self):
-        results = [_make_failed_result("wrapup-0-1", "errored")]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results([tool_result("wrapup-0-1", None, "errored")])
         assert mapping[(0, 1)] is None
 
     def test_expired_item_mapped_to_none(self):
-        results = [_make_failed_result("wrapup-2-0", "expired")]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results([tool_result("wrapup-2-0", None, "expired")])
         assert mapping[(2, 0)] is None
 
     def test_malformed_custom_id_skipped(self):
-        results = [_make_succeeded_result("wrapup-notanint-x", "submit_wrap_up", {"wrap_up": "x"})]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results([tool_result("wrapup-notanint-x", {"wrap_up": "x"})])
         assert mapping == {}
 
     def test_non_wrapup_custom_id_ignored(self):
-        results = [_make_succeeded_result("summarizer", "submit_summaries", {})]
-        mapping = _extract_wrap_up_results(results)
+        mapping = _map_wrap_up_results([tool_result("summarizer", {})])
         assert mapping == {}
 
     def test_validation_error_stored_as_none(self):
-        bad_block = ToolUseBlock(
-            type="tool_use",
-            id="toolu_bad",
-            name="submit_wrap_up",
-            input={"bad_field": "x"},
-        )
-        message = SimpleNamespace(content=[bad_block])
-        result_obj = SimpleNamespace(type="succeeded", message=message)
-        item = SimpleNamespace(custom_id="wrapup-0-0", result=result_obj)
-        mapping = _extract_wrap_up_results([item])
+        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", {"bad_field": "x"})])
         assert mapping[(0, 0)] is None
 
     def test_no_tool_use_block_in_succeeded_result(self):
-        text_block = SimpleNamespace(type="text", text="some text")
-        message = SimpleNamespace(content=[text_block])
-        result_obj = SimpleNamespace(type="succeeded", message=message)
-        item = SimpleNamespace(custom_id="wrapup-0-0", result=result_obj)
-        mapping = _extract_wrap_up_results([item])
+        mapping = _map_wrap_up_results([tool_result("wrapup-0-0", None, "no_tool_use_block")])
         assert mapping[(0, 0)] is None
 
 
@@ -397,3 +325,119 @@ class TestBuildWrapUpBatchRequests:
         bodies = {selected[0][2].article.link: "Body text."}
         requests = _build_wrap_up_batch_requests(selected, bodies, "claude-test-model", 1200)
         assert requests[0]["params"]["model"] == "claude-test-model"
+
+
+# ── summarize_edition() ──────────────────────────────────────────────────────
+
+def _make_edition(*section_articles: list) -> Edition:
+    now = datetime(2026, 5, 6, tzinfo=timezone.utc)
+    sections = [
+        EditionSection(id=f"sec{i}", display_name=f"Section {i}", articles=arts)
+        for i, arts in enumerate(section_articles)
+    ]
+    n = sum(len(a) for a in section_articles)
+    return Edition(
+        edition_date="2026-05-09", window_start=now, window_end=now, sections=sections,
+        stats=EditionStats(
+            candidates_in=n, curated_kept=n, curated_dropped=0, selected=n,
+            by_priority={}, by_section={},
+        ),
+    )
+
+
+class TestSummarizeEdition:
+    def test_empty_edition_skips_the_client(self):
+        edition = _make_edition([])
+        client = ScriptedLLMClient()
+        assert summarize_edition(edition, "m", client=client) is edition
+        assert client.calls == []
+
+    def test_populates_ai_summary_by_flat_index(self):
+        edition = _make_edition(
+            [make_curated(article=make_article(link="https://e.com/1"))],
+            [make_curated(article=make_article(link="https://e.com/2")),
+             make_curated(article=make_article(link="https://e.com/3"))],
+        )
+        client = ScriptedLLMClient([[tool_result("summarizer", {"summaries": [
+            {"article_index": 0, "summary": "Eins."},
+            {"article_index": 1, "summary": None},
+            {"article_index": 2, "summary": "Drei."},
+        ]})]])
+
+        out = summarize_edition(edition, "claude-test", client=client)
+
+        assert out.sections[0].articles[0].ai_summary == "Eins."
+        assert out.sections[1].articles[0].ai_summary is None
+        assert out.sections[1].articles[1].ai_summary == "Drei."
+        # Input edition untouched.
+        assert edition.sections[0].articles[0].ai_summary is None
+        [request] = client.calls[0][1]
+        assert request["custom_id"] == "summarizer"
+        assert request["params"]["model"] == "claude-test"
+        assert request["params"]["tool"]["name"] == "submit_summaries"
+        assert request["params"]["max_tokens"] == 200 + 120 * 3
+
+    def test_batch_off_uses_sync_call(self):
+        edition = _make_edition([make_curated()])
+        client = ScriptedLLMClient([tool_result("summarizer", {"summaries": [
+            {"article_index": 0, "summary": "S."}]})])
+        summarize_edition(edition, "m", use_batch=False, client=client)
+        assert [n for n, _ in client.calls] == ["call_tool"]
+
+    def test_network_error_is_retried(self):
+        edition = _make_edition([make_curated()])
+        client = ScriptedLLMClient([
+            LLMTransientError("net"),
+            tool_result("summarizer", {"summaries": [{"article_index": 0, "summary": "S."}]}),
+        ])
+        out = summarize_edition(edition, "m", use_batch=False, client=client)
+        assert out.sections[0].articles[0].ai_summary == "S."
+
+    def test_persistent_validation_failure_raises(self, monkeypatch):
+        import frankenbote.llm.base as base_module
+        monkeypatch.setattr(base_module, "save_failure", lambda *a: "debug.txt")
+        bad = tool_result("summarizer", {"summaries": [{"article_index": "x", "summary": 1}]})
+        client = ScriptedLLMClient([bad, bad])
+        with pytest.raises(RuntimeError, match="Summarizer"):
+            summarize_edition(_make_edition([make_curated()]), "m", use_batch=False, client=client)
+
+    def test_missing_api_key_without_client_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            summarize_edition(_make_edition([make_curated()]), "m")
+
+
+# ── _generate_one_wrap_up() ──────────────────────────────────────────────────
+
+class TestGenerateOneWrapUp:
+    def test_returns_wrap_up_text(self):
+        client = ScriptedLLMClient([tool_result("wrapup", {"wrap_up": "Langer Text."})])
+        out = _generate_one_wrap_up(client, "claude-test", make_curated(), "Body.")
+        assert out == "Langer Text."
+        [(name, request)] = client.calls
+        assert name == "call_tool"
+        assert request["params"]["tool"]["name"] == "submit_wrap_up"
+        assert request["params"]["max_tokens"] == 1200
+        assert "Body." in request["params"]["user_prompt"]
+
+    def test_null_wrap_up_returns_none(self):
+        client = ScriptedLLMClient([tool_result("wrapup", {"wrap_up": None})])
+        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+
+    def test_network_error_retried_then_ok(self):
+        client = ScriptedLLMClient([LLMTransientError("net"), tool_result("wrapup", {"wrap_up": "T."})])
+        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") == "T."
+
+    def test_persistent_failure_returns_none_without_raising(self, monkeypatch):
+        import frankenbote.llm.base as base_module
+        dumps = []
+        monkeypatch.setattr(base_module, "save_failure", lambda *a: dumps.append(a) or "x")
+        bad = tool_result("wrapup", None, "max_tokens")
+        client = ScriptedLLMClient([bad, bad])
+        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+        assert dumps == []  # per-article wrap-ups never write debug dumps
+
+    def test_non_transient_api_error_returns_none(self):
+        client = ScriptedLLMClient([LLMError("400 bad request")])
+        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+        assert len(client.calls) == 1

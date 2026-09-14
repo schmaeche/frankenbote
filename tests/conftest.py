@@ -90,3 +90,53 @@ def make_curator_config(**overrides) -> CuratorConfig:
     )
     raw.update(overrides)
     return CuratorConfig(**raw)
+
+
+# ── LLM client stand-in ──────────────────────────────────────────────────────
+
+from frankenbote.llm import LLMClient, ToolCallRequest, ToolCallResult  # noqa: E402
+
+
+class ScriptedLLMClient(LLMClient):
+    """LLMClient whose primitives replay a scripted list of outcomes.
+
+    Each entry in `outcomes` is consumed by one primitive call:
+      - for the sync path (call_tool): a ToolCallResult, or an exception
+        instance to raise;
+      - for the batch path: an exception (raised by submit_batch) or a
+        list[ToolCallResult] (returned by batch_results).
+
+    `calls` records every primitive invocation as (name, argument).
+    """
+
+    def __init__(self, outcomes=(), **kwargs):
+        super().__init__(**kwargs)
+        self.outcomes = list(outcomes)
+        self.calls: list[tuple[str, object]] = []
+
+    def _pop(self):
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    def call_tool(self, request: ToolCallRequest) -> ToolCallResult:
+        self.calls.append(("call_tool", request))
+        return self._pop()
+
+    def submit_batch(self, requests) -> str:
+        self.calls.append(("submit_batch", list(requests)))
+        if self.outcomes and isinstance(self.outcomes[0], BaseException):
+            self._pop()
+        return f"batch_{len(self.calls)}"
+
+    def wait_for_batch(self, batch_id: str) -> None:
+        self.calls.append(("wait_for_batch", batch_id))
+
+    def batch_results(self, batch_id: str) -> list[ToolCallResult]:
+        self.calls.append(("batch_results", batch_id))
+        return self._pop()
+
+
+def tool_result(custom_id: str, tool_input, stop_reason: str = "tool_use", raw=None) -> ToolCallResult:
+    return ToolCallResult(custom_id, tool_input, stop_reason, raw)

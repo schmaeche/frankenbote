@@ -1,7 +1,6 @@
-"""Tests for frankenbote.curator — pure helpers only (no API calls)."""
+"""Tests for frankenbote.curator — pure helpers plus curate() against a scripted LLM client."""
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -10,13 +9,19 @@ import textwrap
 from frankenbote.curator import (
     _build_curator_tool,
     _build_user_prompt,
-    _extract_curator_result,
     _merge_decisions,
     _normalize_tool_input,
+    curate,
     load_curator_config,
 )
+from frankenbote.llm import LLMTransientError
 from frankenbote.models import CuratorDecision, Priority
-from tests.conftest import make_article, make_curator_config
+from tests.conftest import (
+    ScriptedLLMClient,
+    make_article,
+    make_curator_config,
+    tool_result,
+)
 
 
 # ── load_curator_config ───────────────────────────────────────────────────────
@@ -61,22 +66,6 @@ class TestLoadCuratorConfig:
         assert result.guidance == "Test guidance."
         assert len(result.priorities) == 1
         assert len(result.sections) == 1
-
-
-# ── helpers for building mock batch results ──────────────────────────────────
-
-def _make_succeeded_result(custom_id: str, tool_input: dict) -> SimpleNamespace:
-    """Minimal mock of MessageBatchIndividualResponse with a succeeded tool_use."""
-    tool_block = SimpleNamespace(type="tool_use", name="submit_decisions", input=tool_input)
-    message = SimpleNamespace(content=[tool_block])
-    result = SimpleNamespace(type="succeeded", message=message)
-    return SimpleNamespace(custom_id=custom_id, result=result)
-
-
-def _make_failed_result(custom_id: str, result_type: str) -> SimpleNamespace:
-    """Minimal mock for errored / expired / canceled batch results."""
-    result = SimpleNamespace(type=result_type)
-    return SimpleNamespace(custom_id=custom_id, result=result)
 
 
 # ── _normalize_tool_input ────────────────────────────────────────────────────
@@ -224,62 +213,73 @@ class TestBuildCuratorTool:
         assert None in section_enum
 
 
-# ── _extract_curator_result ──────────────────────────────────────────────────
+# ── curate() ─────────────────────────────────────────────────────────────────
 
-class TestExtractCuratorResult:
-    _TOOL_INPUT = {"decisions": [{"article_index": 0, "section": "politik",
-                                   "priority": "P1", "relevance_score": 8.0,
-                                   "rationale": "Local story."}]}
+def _decision(idx: int, section="politik", priority="P1", score=8.0, rationale="Local."):
+    return {
+        "article_index": idx, "section": section, "priority": priority,
+        "relevance_score": score, "rationale": rationale,
+    }
 
-    def test_succeeded_returns_tool_input_and_tool_use(self):
-        results = [_make_succeeded_result("curator", self._TOOL_INPUT)]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert stop_reason == "tool_use"
-        assert tool_input == self._TOOL_INPUT
 
-    def test_errored_returns_none_and_errored(self):
-        results = [_make_failed_result("curator", "errored")]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert tool_input is None
-        assert stop_reason == "errored"
+class TestCurate:
+    def test_empty_candidates_skip_the_client(self):
+        assert curate([], make_curator_config(), client=ScriptedLLMClient()) == []
 
-    def test_expired_returns_none_and_expired(self):
-        results = [_make_failed_result("curator", "expired")]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert tool_input is None
-        assert stop_reason == "expired"
+    def test_builds_request_and_merges_decisions(self):
+        config = make_curator_config(model="claude-test")
+        candidates = [make_article(title="A"), make_article(title="B", link="https://example.com/b")]
+        client = ScriptedLLMClient([
+            [tool_result("curator", {"decisions": [_decision(0), _decision(1, section=None)]})]
+        ])
 
-    def test_canceled_returns_none_and_canceled(self):
-        results = [_make_failed_result("curator", "canceled")]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert tool_input is None
-        assert stop_reason == "canceled"
+        curated = curate(candidates, config, client=client)
 
-    def test_missing_custom_id_returns_no_result(self):
-        results = [_make_succeeded_result("something-else", self._TOOL_INPUT)]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert tool_input is None
-        assert stop_reason == "no_result"
+        assert [c.article.title for c in curated] == ["A", "B"]
+        assert curated[0].section == "politik"
+        assert curated[1].section is None
+        # Request shape handed to the client.
+        name, requests = client.calls[0]
+        assert name == "submit_batch"
+        [request] = requests
+        assert request["custom_id"] == "curator"
+        params = request["params"]
+        assert params["model"] == "claude-test"
+        assert params["tool"]["name"] == "submit_decisions"
+        assert params["max_tokens"] == 500 + 150 * 2
+        assert "<article index=\"0\"" in params["user_prompt"]
+        assert "UNTRUSTED INPUT" in params["system"]
 
-    def test_empty_iterator_returns_no_result(self):
-        tool_input, stop_reason = _extract_curator_result([])
-        assert tool_input is None
-        assert stop_reason == "no_result"
+    def test_batch_off_uses_sync_call(self):
+        client = ScriptedLLMClient([tool_result("curator", {"decisions": [_decision(0)]})])
+        curate([make_article()], make_curator_config(), use_batch=False, client=client)
+        assert [n for n, _ in client.calls] == ["call_tool"]
 
-    def test_succeeded_but_no_matching_tool_block(self):
-        wrong_block = SimpleNamespace(type="tool_use", name="other_tool", input={})
-        message = SimpleNamespace(content=[wrong_block])
-        result = SimpleNamespace(type="succeeded", message=message)
-        item = SimpleNamespace(custom_id="curator", result=result)
-        tool_input, stop_reason = _extract_curator_result([item])
-        assert tool_input is None
-        assert stop_reason == "no_tool_use_block"
+    def test_decisions_as_json_string_are_normalised(self):
+        client = ScriptedLLMClient([
+            tool_result("curator", {"decisions": json.dumps([_decision(0)])})
+        ])
+        curated = curate([make_article()], make_curator_config(), use_batch=False, client=client)
+        assert curated[0].section == "politik"
 
-    def test_other_custom_ids_before_curator_are_skipped(self):
-        results = [
-            _make_failed_result("unrelated", "errored"),
-            _make_succeeded_result("curator", self._TOOL_INPUT),
-        ]
-        tool_input, stop_reason = _extract_curator_result(results)
-        assert stop_reason == "tool_use"
-        assert tool_input == self._TOOL_INPUT
+    def test_retries_once_then_succeeds(self):
+        client = ScriptedLLMClient([
+            LLMTransientError("net"),
+            tool_result("curator", {"decisions": [_decision(0)]}),
+        ])
+        curated = curate([make_article()], make_curator_config(), use_batch=False, client=client)
+        assert len(curated) == 1
+        assert len(client.calls) == 2
+
+    def test_persistent_failure_raises_runtime_error(self, monkeypatch):
+        import frankenbote.llm.base as base_module
+        monkeypatch.setattr(base_module, "save_failure", lambda *a: "debug.txt")
+        bad = tool_result("curator", None, "max_tokens")
+        client = ScriptedLLMClient([bad, bad])
+        with pytest.raises(RuntimeError, match="Curator failed twice"):
+            curate([make_article()], make_curator_config(), use_batch=False, client=client)
+
+    def test_missing_api_key_without_client_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+            curate([make_article()], make_curator_config())

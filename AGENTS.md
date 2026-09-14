@@ -36,9 +36,11 @@ pytest --cov=frankenbote --cov-report=term-missing -q   # with coverage (fail_un
 docker compose run --rm test
 ```
 
-`publisher.py`, `cli.py`, `__main__.py`, and the `curate()` /
-`summarize_edition()` entry points are excluded from coverage — they require
-a live SFTP server or live Anthropic API calls.
+`publisher.py`, `cli.py`, `__main__.py`, and `generate_wrap_ups()` are
+excluded from coverage — they require a live SFTP server or fetch article
+bodies over the network. `curate()` and `summarize_edition()` are tested
+by injecting a scripted `LLMClient`; the Anthropic client is tested with a
+mocked SDK.
 
 There is no linter/formatter configured in `pyproject.toml` — don't assume
 `ruff`/`black`/`mypy` are wired in without checking first. Editors may still
@@ -60,6 +62,7 @@ repeating earlier (expensive, LLM-billed) stages:
 ```
 fetcher.py → filter.py → paywall_gate.py + curator.py → selector.py → summarizer.py → renderer.py → publisher.py
    (Article)   (Article)      (CuratedArticle)             (Edition)      (Edition)      (HTML)         (SFTP)
+                                    └── llm/ (LLMClient) ──────────────────┘
 ```
 
 - `data/editions/YYYY-MM-DD-candidates.json` — post-filter articles
@@ -90,16 +93,37 @@ is backfilled by the next-best candidate rather than shrinking the edition.
 Only a *definitive* paywalled verdict excludes an article — unknown/failed
 fetches always keep it in.
 
-### LLM integration (curator.py, summarizer.py)
+### LLM integration (llm/, curator.py, summarizer.py)
 
-Both use Anthropic **tool use** (forced `tool_choice`) instead of parsing
-free-text JSON, so the API guarantees schema-valid output. Both support the
-**Batches API** (default) or synchronous streaming (`--batch-off`), selected
-via a `use_batch` flag that swaps `_call_llm_batch` / `_call_llm` but keeps
-the surrounding retry logic identical. Both retry exactly once on failure
-(network error, non-`tool_use` stop reason, or schema validation failure);
-on a second failure they call `_debug.save_failure()` to dump raw output to
-`data/debug/` before raising.
+All provider calls go through `llm/`. `llm/base.py` is provider-agnostic:
+it defines the request/result shapes (`ToolCallRequest`, `ToolCallResult`),
+the error hierarchy (`LLMError` → `LLMTransientError` → `LLMBatchTimeout`,
+all `RuntimeError` subclasses so the CLI's existing handlers report them),
+and the abstract `LLMClient` with four primitives (`call_tool`,
+`submit_batch`, `wait_for_batch`, `batch_results`) plus the **retry loops**
+built on them (`call_tool_with_retry`, `run_batch_with_retry`).
+`llm/anthropic_client.py` is the only module that imports the Anthropic
+SDK: `AnthropicLLMClient` reads `ANTHROPIC_API_KEY` on instantiation,
+implements the primitives, and translates SDK exceptions into the
+hierarchy above. To add a provider, subclass `LLMClient` in a new module
+under `llm/` and re-export it from `llm/__init__.py`; the retry loops are
+inherited, and pipeline code doesn't change.
+
+`curator.py` and `summarizer.py` only build prompts and tool schemas, wrap
+them in a `ToolCallRequest`, and hand them to the client together with a
+`parse` callable (their Pydantic validation). Every call is a **forced tool
+call** (`tool_choice`), so the API guarantees schema-valid output. The
+`use_batch` flag (`--batch-off` on the CLI) selects the **Batches API**
+(default) or synchronous streaming; both paths share the retry policy: two
+attempts, no backoff, retry on transient errors (network, timeout, batch
+timeout), a non-`tool_use` stop reason, a missing tool block, or a
+`ValidationError` from `parse`; on the final failure the loop calls
+`_debug.save_failure()` to dump raw output to `data/debug/` and raises
+`RuntimeError`. Attempts and backoff are constructor arguments of the
+client (`max_attempts`, `backoff_seconds`) with no config/env keys — only
+tests change them. The public entry points accept an optional
+`client: LLMClient` for injecting a fake in tests (see
+`tests/conftest.py::ScriptedLLMClient`).
 
 **Prompt language convention**: prompts are written in English (there's an
 open ticket to make output language configurable, and English source

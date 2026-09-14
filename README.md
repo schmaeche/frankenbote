@@ -106,7 +106,7 @@ ptw . -- -x --tb=short -q   # watch mode
 
 ### Coverage notes
 
-`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. The `curate()` and `summarize_edition()` public API functions are also marked `# pragma: no cover` for the same reason (live Anthropic API calls). Everything else is covered at ≥ 70%.
+`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. `generate_wrap_ups()` is marked `# pragma: no cover` because it fetches article bodies over the network. All LLM calls go through the `llm/` client abstraction, so `curate()` and `summarize_edition()` are unit-tested against a scripted in-memory client and the Anthropic client against a mocked SDK. Everything else is covered at ≥ 70%.
 
 ---
 
@@ -341,6 +341,7 @@ frankenbote/
 │   │   ├── detector.py # Runs registered strategies, aggregates verdicts
 │   │   └── strategies/ # One module per strategy (structured metadata, content length)
 │   ├── paywall_gate.py # Applies paywall verdicts in the pipeline
+│   ├── llm/            # LLM client abstraction (LLMClient base + AnthropicLLMClient)
 │   ├── curator.py      # AI curation via Claude
 │   ├── selector.py     # Priority-based article selection
 │   ├── summarizer.py   # AI summarization via Claude
