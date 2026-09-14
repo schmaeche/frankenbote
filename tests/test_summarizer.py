@@ -1,7 +1,6 @@
 """Tests for frankenbote.summarizer — pure helpers plus the public entry points
 against a scripted LLM client (no API calls)."""
 
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -9,50 +8,15 @@ import pytest
 from frankenbote.llm import LLMError, LLMTransientError
 from frankenbote.models import Edition, EditionSection, EditionStats
 from frankenbote.summarizer import (
-    SummarizerConfig,
     _build_user_prompt,
-    _build_wrap_up_batch_requests,
+    _build_wrap_up_batch_items,
     _build_wrap_up_prompt,
     _generate_one_wrap_up,
     _map_wrap_up_results,
-    _normalize_tool_input,
     _select_body,
-    _WrapUpResponse,
-    load_summarizer_config,
     summarize_edition,
 )
 from tests.conftest import ScriptedLLMClient, make_article, make_curated, tool_result
-
-# ── _normalize_tool_input ────────────────────────────────────────────────────
-
-class TestNormalizeToolInput:
-    def test_list_passthrough(self):
-        summaries_list = [{"article_index": 0, "summary": "A summary."}]
-        tool_input = {"summaries": summaries_list}
-        result = _normalize_tool_input(tool_input)
-        assert result["summaries"] is summaries_list
-
-    def test_json_string_is_parsed_to_list(self):
-        summaries_list = [{"article_index": 0, "summary": "A summary."}]
-        tool_input = {"summaries": json.dumps(summaries_list)}
-        result = _normalize_tool_input(tool_input)
-        assert isinstance(result["summaries"], list)
-        assert result["summaries"][0]["article_index"] == 0
-
-    def test_invalid_json_string_raises_value_error(self):
-        tool_input = {"summaries": "not valid json {{{"}
-        with pytest.raises(ValueError, match="not valid JSON"):
-            _normalize_tool_input(tool_input)
-
-    def test_json_string_that_is_not_list_raises(self):
-        tool_input = {"summaries": json.dumps({"not": "a list"})}
-        with pytest.raises(ValueError):
-            _normalize_tool_input(tool_input)
-
-    def test_other_keys_preserved(self):
-        tool_input = {"summaries": [], "extra": "data"}
-        result = _normalize_tool_input(tool_input)
-        assert result["extra"] == "data"
 
 
 # ── _build_user_prompt ───────────────────────────────────────────────────────
@@ -60,9 +24,7 @@ class TestNormalizeToolInput:
 class TestBuildUserPrompt:
     def test_prompt_contains_article_count(self):
         articles = [
-            make_curated(article=__import__('tests.conftest', fromlist=['make_article']).make_article(
-                link=f"https://example.com/{i}"
-            ))
+            make_curated(article=make_article(link=f"https://example.com/{i}"))
             for i in range(4)
         ]
         prompt = _build_user_prompt(articles)
@@ -84,83 +46,17 @@ class TestBuildUserPrompt:
         assert 'is_lead="false"' in prompt
 
     def test_article_title_in_prompt(self):
-        from tests.conftest import make_article
         article = make_curated(article=make_article(title="Unique Headline ABC"))
         prompt = _build_user_prompt([article])
         assert "Unique Headline ABC" in prompt
 
     def test_count_in_closing_line_matches_input(self):
-        from tests.conftest import make_article
         articles = [
             make_curated(article=make_article(link=f"https://example.com/{i}"))
             for i in range(7)
         ]
         prompt = _build_user_prompt(articles)
         assert "7 Einträge erwartet" in prompt
-
-
-# ── SummarizerConfig ─────────────────────────────────────────────────────────
-
-class TestSummarizerConfig:
-    def test_valid_model_string(self):
-        cfg = SummarizerConfig(model="claude-sonnet-4-6")
-        assert cfg.model == "claude-sonnet-4-6"
-
-    def test_missing_model_raises(self):
-        with pytest.raises(Exception):
-            SummarizerConfig()
-
-    def test_wrap_up_model_defaults_to_none(self):
-        cfg = SummarizerConfig(model="claude-haiku-4-5")
-        assert cfg.wrap_up_model is None
-
-    def test_wrap_up_model_accepted(self):
-        cfg = SummarizerConfig(
-            model="claude-haiku-4-5", wrap_up_model="claude-sonnet-4-6"
-        )
-        assert cfg.wrap_up_model == "claude-sonnet-4-6"
-
-
-# ── load_summarizer_config ───────────────────────────────────────────────────
-
-class TestLoadSummarizerConfig:
-    def test_loads_model_from_valid_yaml(self, tmp_path):
-        cfg_file = tmp_path / "sections.yaml"
-        cfg_file.write_text("summarizer:\n  model: claude-haiku-4-5\n", encoding="utf-8")
-        cfg = load_summarizer_config(cfg_file)
-        assert cfg.model == "claude-haiku-4-5"
-
-    def test_missing_file_raises_value_error(self, tmp_path):
-        with pytest.raises(ValueError, match="not found"):
-            load_summarizer_config(tmp_path / "nonexistent.yaml")
-
-    def test_yaml_without_summarizer_key_raises(self, tmp_path):
-        cfg_file = tmp_path / "sections.yaml"
-        cfg_file.write_text("curator:\n  model: claude-sonnet-4-6\n", encoding="utf-8")
-        with pytest.raises(ValueError, match="summarizer"):
-            load_summarizer_config(cfg_file)
-
-    def test_non_dict_yaml_raises(self, tmp_path):
-        cfg_file = tmp_path / "sections.yaml"
-        cfg_file.write_text("- just\n- a\n- list\n", encoding="utf-8")
-        with pytest.raises(ValueError, match="summarizer"):
-            load_summarizer_config(cfg_file)
-
-    def test_accepts_path_as_string(self, tmp_path):
-        cfg_file = tmp_path / "sections.yaml"
-        cfg_file.write_text("summarizer:\n  model: claude-opus-4-7\n", encoding="utf-8")
-        cfg = load_summarizer_config(str(cfg_file))
-        assert cfg.model == "claude-opus-4-7"
-
-    def test_loads_wrap_up_model_when_present(self, tmp_path):
-        cfg_file = tmp_path / "sections.yaml"
-        cfg_file.write_text(
-            "summarizer:\n  model: claude-haiku-4-5\n"
-            "  wrap_up_model: claude-sonnet-4-6\n",
-            encoding="utf-8",
-        )
-        cfg = load_summarizer_config(cfg_file)
-        assert cfg.wrap_up_model == "claude-sonnet-4-6"
 
 
 # ── _select_body ─────────────────────────────────────────────────────────────
@@ -213,20 +109,6 @@ class TestBuildWrapUpPrompt:
         assert "submit_wrap_up" in prompt
 
 
-# ── _WrapUpResponse ──────────────────────────────────────────────────────────
-
-class TestWrapUpResponse:
-    def test_accepts_string(self):
-        assert _WrapUpResponse(wrap_up="Some text").wrap_up == "Some text"
-
-    def test_accepts_null(self):
-        assert _WrapUpResponse(wrap_up=None).wrap_up is None
-
-    def test_missing_field_raises(self):
-        with pytest.raises(Exception):
-            _WrapUpResponse()
-
-
 # ── _map_wrap_up_results ─────────────────────────────────────────────────────
 
 class TestMapWrapUpResults:
@@ -268,9 +150,9 @@ class TestMapWrapUpResults:
         assert mapping[(0, 0)] is None
 
 
-# ── _build_wrap_up_batch_requests ────────────────────────────────────────────
+# ── _build_wrap_up_batch_items ───────────────────────────────────────────────
 
-class TestBuildWrapUpBatchRequests:
+class TestBuildWrapUpBatchItems:
     def _make_selected(self, n: int):
         return [
             (s, a, make_curated(article=make_article(
@@ -284,19 +166,28 @@ class TestBuildWrapUpBatchRequests:
     def test_custom_id_format(self):
         selected = self._make_selected(2)
         bodies = {item.article.link: "Body text." for _, _, item in selected}
-        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-haiku-4-5", 1200)
-        custom_ids = [r["custom_id"] for r in requests]
-        assert custom_ids == ["wrapup-0-0", "wrapup-0-1"]
+        items = _build_wrap_up_batch_items(selected, bodies)
+        assert [custom_id for custom_id, _ in items] == ["wrapup-0-0", "wrapup-0-1"]
 
-    def test_request_count_matches_articles_with_bodies(self):
+    def test_item_count_matches_articles_with_bodies(self):
         selected = self._make_selected(3)
         bodies = {item.article.link: "Body." for _, _, item in selected}
-        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-haiku-4-5", 1200)
-        assert len(requests) == 3
+        assert len(_build_wrap_up_batch_items(selected, bodies)) == 3
+
+    def test_prompt_uses_fetched_body(self):
+        selected = self._make_selected(1)
+        bodies = {selected[0][2].article.link: "Distinctive fetched body."}
+        [(_, prompt)] = _build_wrap_up_batch_items(selected, bodies)
+        assert "Distinctive fetched body." in prompt
+        assert "Article 0-0" in prompt
+
+    def test_prompt_falls_back_to_feed_snippet(self):
+        selected = self._make_selected(1)
+        [(_, prompt)] = _build_wrap_up_batch_items(selected, {})
+        assert "A feed snippet." in prompt
 
     def test_articles_without_body_excluded(self):
         # _select_body returns None only when both fetched body AND feed summary are absent.
-        # Give the second and third articles empty summaries so they are excluded.
         first = (0, 0, make_curated(article=make_article(
             link="https://example.com/0-0", summary="Feed snippet."
         )))
@@ -307,24 +198,16 @@ class TestBuildWrapUpBatchRequests:
             link="https://example.com/1-0", summary=""
         )))
         bodies = {first[2].article.link: "Body text."}
-        requests = _build_wrap_up_batch_requests([first, second, third], bodies, "claude-haiku-4-5", 1200)
-        assert len(requests) == 1
-        assert requests[0]["custom_id"] == "wrapup-0-0"
+        items = _build_wrap_up_batch_items([first, second, third], bodies)
+        assert len(items) == 1
+        assert items[0][0] == "wrapup-0-0"
 
     def test_all_no_body_returns_empty(self):
-        # Articles with empty summaries and no fetched bodies → _select_body returns None.
         selected = [
             (0, 0, make_curated(article=make_article(link="https://example.com/0", summary=""))),
             (0, 1, make_curated(article=make_article(link="https://example.com/1", summary=""))),
         ]
-        requests = _build_wrap_up_batch_requests(selected, {}, "claude-haiku-4-5", 1200)
-        assert requests == []
-
-    def test_params_contain_model(self):
-        selected = self._make_selected(1)
-        bodies = {selected[0][2].article.link: "Body text."}
-        requests = _build_wrap_up_batch_requests(selected, bodies, "claude-test-model", 1200)
-        assert requests[0]["params"]["model"] == "claude-test-model"
+        assert _build_wrap_up_batch_items(selected, {}) == []
 
 
 # ── summarize_edition() ──────────────────────────────────────────────────────
@@ -349,7 +232,7 @@ class TestSummarizeEdition:
     def test_empty_edition_skips_the_client(self):
         edition = _make_edition([])
         client = ScriptedLLMClient()
-        assert summarize_edition(edition, "m", client=client) is edition
+        assert summarize_edition(edition, client) is edition
         assert client.calls == []
 
     def test_populates_ai_summary_by_flat_index(self):
@@ -364,7 +247,7 @@ class TestSummarizeEdition:
             {"article_index": 2, "summary": "Drei."},
         ]})]])
 
-        out = summarize_edition(edition, "claude-test", client=client)
+        out = summarize_edition(edition, client)
 
         assert out.sections[0].articles[0].ai_summary == "Eins."
         assert out.sections[1].articles[0].ai_summary is None
@@ -372,16 +255,17 @@ class TestSummarizeEdition:
         # Input edition untouched.
         assert edition.sections[0].articles[0].ai_summary is None
         [request] = client.calls[0][1]
+        assert request["task"] == "summarizer"
         assert request["custom_id"] == "summarizer"
-        assert request["params"]["model"] == "claude-test"
+        assert "model" not in request["params"]
         assert request["params"]["tool"]["name"] == "submit_summaries"
         assert request["params"]["max_tokens"] == 200 + 120 * 3
 
-    def test_batch_off_uses_sync_call(self):
+    def test_client_batch_off_uses_sync_call(self):
         edition = _make_edition([make_curated()])
         client = ScriptedLLMClient([tool_result("summarizer", {"summaries": [
-            {"article_index": 0, "summary": "S."}]})])
-        summarize_edition(edition, "m", use_batch=False, client=client)
+            {"article_index": 0, "summary": "S."}]})], use_batch=False)
+        summarize_edition(edition, client)
         assert [n for n, _ in client.calls] == ["call_tool"]
 
     def test_network_error_is_retried(self):
@@ -389,55 +273,58 @@ class TestSummarizeEdition:
         client = ScriptedLLMClient([
             LLMTransientError("net"),
             tool_result("summarizer", {"summaries": [{"article_index": 0, "summary": "S."}]}),
-        ])
-        out = summarize_edition(edition, "m", use_batch=False, client=client)
+        ], use_batch=False)
+        out = summarize_edition(edition, client)
         assert out.sections[0].articles[0].ai_summary == "S."
+
+    def test_summaries_as_json_string_are_normalised(self):
+        edition = _make_edition([make_curated()])
+        client = ScriptedLLMClient([tool_result(
+            "summarizer", {"summaries": '[{"article_index": 0, "summary": "S."}]'}
+        )], use_batch=False)
+        assert summarize_edition(edition, client).sections[0].articles[0].ai_summary == "S."
 
     def test_persistent_validation_failure_raises(self, monkeypatch):
         import frankenbote.llm.base as base_module
         monkeypatch.setattr(base_module, "save_failure", lambda *a: "debug.txt")
         bad = tool_result("summarizer", {"summaries": [{"article_index": "x", "summary": 1}]})
-        client = ScriptedLLMClient([bad, bad])
+        client = ScriptedLLMClient([bad, bad], use_batch=False)
         with pytest.raises(RuntimeError, match="Summarizer"):
-            summarize_edition(_make_edition([make_curated()]), "m", use_batch=False, client=client)
-
-    def test_missing_api_key_without_client_raises(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-            summarize_edition(_make_edition([make_curated()]), "m")
+            summarize_edition(_make_edition([make_curated()]), client)
 
 
 # ── _generate_one_wrap_up() ──────────────────────────────────────────────────
 
 class TestGenerateOneWrapUp:
     def test_returns_wrap_up_text(self):
-        client = ScriptedLLMClient([tool_result("wrapup", {"wrap_up": "Langer Text."})])
-        out = _generate_one_wrap_up(client, "claude-test", make_curated(), "Body.")
+        client = ScriptedLLMClient([tool_result("wrap_up", {"wrap_up": "Langer Text."})])
+        out = _generate_one_wrap_up(client, make_curated(), "Body.")
         assert out == "Langer Text."
         [(name, request)] = client.calls
-        assert name == "call_tool"
+        assert name == "call_tool"  # always synchronous, even with batch on
+        assert request["task"] == "wrap_up"
         assert request["params"]["tool"]["name"] == "submit_wrap_up"
         assert request["params"]["max_tokens"] == 1200
         assert "Body." in request["params"]["user_prompt"]
 
     def test_null_wrap_up_returns_none(self):
-        client = ScriptedLLMClient([tool_result("wrapup", {"wrap_up": None})])
-        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+        client = ScriptedLLMClient([tool_result("wrap_up", {"wrap_up": None})])
+        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
 
     def test_network_error_retried_then_ok(self):
-        client = ScriptedLLMClient([LLMTransientError("net"), tool_result("wrapup", {"wrap_up": "T."})])
-        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") == "T."
+        client = ScriptedLLMClient([LLMTransientError("net"), tool_result("wrap_up", {"wrap_up": "T."})])
+        assert _generate_one_wrap_up(client, make_curated(), "Body.") == "T."
 
     def test_persistent_failure_returns_none_without_raising(self, monkeypatch):
         import frankenbote.llm.base as base_module
         dumps = []
         monkeypatch.setattr(base_module, "save_failure", lambda *a: dumps.append(a) or "x")
-        bad = tool_result("wrapup", None, "max_tokens")
+        bad = tool_result("wrap_up", None, "max_tokens")
         client = ScriptedLLMClient([bad, bad])
-        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
         assert dumps == []  # per-article wrap-ups never write debug dumps
 
     def test_non_transient_api_error_returns_none(self):
         client = ScriptedLLMClient([LLMError("400 bad request")])
-        assert _generate_one_wrap_up(client, "m", make_curated(), "Body.") is None
+        assert _generate_one_wrap_up(client, make_curated(), "Body.") is None
         assert len(client.calls) == 1

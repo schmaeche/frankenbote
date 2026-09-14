@@ -62,7 +62,6 @@ def make_curated(**overrides) -> CuratedArticle:
 def make_curator_config(**overrides) -> CuratorConfig:
     """Build a minimal CuratorConfig without loading any YAML files."""
     raw = dict(
-        model="claude-sonnet-4-6",
         guidance="Prioritise local Franconian news.",
         priorities=[
             {"id": "P1", "label": "Lokal", "description": "Local Franconia news"},
@@ -94,7 +93,15 @@ def make_curator_config(**overrides) -> CuratorConfig:
 
 # ── LLM client stand-in ──────────────────────────────────────────────────────
 
-from frankenbote.llm import LLMClient, ToolCallRequest, ToolCallResult  # noqa: E402
+from frankenbote.llm import (  # noqa: E402
+    LLMClient,
+    ModelConfig,
+    ToolCallRequest,
+    ToolCallResult,
+)
+
+# Model config used by every scripted client unless a test overrides it.
+TEST_MODELS = ModelConfig(curator="test-curator-model", summarizer="test-summarizer-model")
 
 
 class ScriptedLLMClient(LLMClient):
@@ -109,8 +116,8 @@ class ScriptedLLMClient(LLMClient):
     `calls` records every primitive invocation as (name, argument).
     """
 
-    def __init__(self, outcomes=(), **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, outcomes=(), models: ModelConfig | None = None, **kwargs):
+        super().__init__(TEST_MODELS if models is None else models, **kwargs)
         self.outcomes = list(outcomes)
         self.calls: list[tuple[str, object]] = []
 

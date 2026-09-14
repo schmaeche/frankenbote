@@ -6,7 +6,8 @@
 #                with one of these IDs.
 # - guidance:    Free-form editorial direction. Goes verbatim into the LLM
 #                prompt. Tweak this until the curator behaves the way you want.
-# - model:       The Anthropic model used for curation. Pinned for stability.
+#
+# Which model each AI step uses is configured in config/config.yaml.
 
 # Remove selector.targets to use default distribution.
 # (50% P1, 25% P2, 15% P3, 10% P4). 
@@ -18,21 +19,7 @@ selector:
     P3: 0.20
     P4: 0.05
 
-summarizer:
-  # Model used for the summarization call. Pinned so behavior is reproducible.
-  # model: claude-sonnet-4-6
-  model: claude-haiku-4-5-20251001   # cheaper/faster for summarization
-
-  # Optional: model for lead-article wrap-ups (longer, multi-paragraph
-  # digests). Unset = reuse `model` above. Override only if wrap-ups need
-  # a different model than the short summaries.
-  # wrap_up_model: claude-sonnet-4-6
-
-
 curator:
-  # Model used for the curation call. Pinned so behavior is reproducible.
-  model: claude-sonnet-4-6
-
   # Geographic priority tiers. The order matters — first = highest priority.
   priorities:
     - id: P1

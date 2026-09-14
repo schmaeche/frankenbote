@@ -8,7 +8,7 @@ or with an invalid URL, Pydantic raises a clear error.
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class Category(str, Enum):
@@ -79,9 +79,12 @@ class CuratedArticle(BaseModel):
 class CuratorDecision(BaseModel):
     """Strict shape of a single decision in the LLM's JSON response.
 
-    The LLM gets the schema in the prompt and is told to match it exactly.
-    article_index ties the decision back to the input list.
+    The tool schema the LLM must match is derived from this model
+    (see llm/tasks/curate.py). article_index ties the decision back to
+    the input list.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     article_index: int = Field(..., ge=0)
     section: str | None
@@ -92,6 +95,8 @@ class CuratorDecision(BaseModel):
 
 class CuratorResponse(BaseModel):
     """Top-level shape the LLM must return: a list of decisions."""
+
+    model_config = ConfigDict(extra="forbid")
 
     decisions: list[CuratorDecision]
 

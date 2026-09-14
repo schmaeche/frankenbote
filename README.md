@@ -67,7 +67,8 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 
 - `config/sources.yaml` — RSS feed list; toggle sources on/off with `enabled: true/false`
 - `config/filter.yaml` — time window and keyword filtering rules
-- `config/sections.yaml` — section definitions, AI curation model settings, and summarizer model settings (including an optional `wrap_up_model` for lead-article wrap-ups)
+- `config/sections.yaml` — section definitions, priority tiers, editorial guidance, and selector targets
+- `config/config.yaml` — LLM settings: provider, whether to use the Batches API by default, and the model for each AI step (`curator`, `summarizer`, and an optional `wrap_up` that falls back to the summarizer model)
 
 ---
 
@@ -259,23 +260,25 @@ Fetch all enabled RSS sources and print a per-source article count. Useful for c
 frankenbote pipeline [--sources config/sources.yaml]
                      [--filter-config config/filter.yaml]
                      [--sections-config config/sections.yaml]
+                     [--config config/config.yaml]
                      [--size 25]
                      [--no-curate]
                      [--wrap-up]
                      [--batch-off]
 ```
 
-Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development. Pass `--wrap-up` to generate longer, multi-paragraph wrap-ups for the lead article of each section (opt-in; off by default due to potential copyright concerns around reproducing source text). Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
+Run all stages in sequence. `--size` sets the target number of articles in the final edition (5–100). Pass `--no-curate` to stop after filtering, which skips all LLM calls — useful for development. Pass `--wrap-up` to generate longer, multi-paragraph wrap-ups for the lead article of each section (opt-in; off by default due to potential copyright concerns around reproducing source text). `--config` points at the LLM configuration (provider and models); pass `--batch-off` to override its `use_batch` setting and use synchronous streaming API calls instead of the Batches API for this run.
 
 ### `curate`
 
 ```
 frankenbote curate --candidates-date YYYY-MM-DD
                    [--sections-config config/sections.yaml]
+                   [--config config/config.yaml]
                    [--batch-off]
 ```
 
-Re-run the AI curation step on a previously saved candidates file without refetching. The date must match a file in `data/`. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
+Re-run the AI curation step on a previously saved candidates file without refetching. The date must match a file in `data/`. Pass `--batch-off` to override the configured `use_batch` setting and use synchronous streaming API calls instead of the Batches API.
 
 ### `select`
 
@@ -292,21 +295,21 @@ Re-run article selection on a previously curated dataset. Useful for experimenti
 
 ```
 frankenbote summarize --edition-date YYYY-MM-DD
-                      [--sections-config config/sections.yaml]
+                      [--config config/config.yaml]
                       [--batch-off]
 ```
 
-Re-run AI summarization on a previously saved edition JSON. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
+Re-run AI summarization on a previously saved edition JSON. Pass `--batch-off` to override the configured `use_batch` setting and use synchronous streaming API calls instead of the Batches API.
 
 ### `wrap-up`
 
 ```
 frankenbote wrap-up --edition-date YYYY-MM-DD
-                    [--sections-config config/sections.yaml]
+                    [--config config/config.yaml]
                     [--batch-off]
 ```
 
-Generate longer, multi-paragraph wrap-ups for the lead article of each section in a previously saved edition JSON. This is the standalone version of the `--wrap-up` flag on `pipeline` — useful for iterating on wrap-up output without re-running the full summarizer. Opt-in; off by default due to potential copyright concerns around reproducing source text. Pass `--batch-off` to use synchronous streaming API calls instead of the Batches API.
+Generate longer, multi-paragraph wrap-ups for the lead article of each section in a previously saved edition JSON. This is the standalone version of the `--wrap-up` flag on `pipeline` — useful for iterating on wrap-up output without re-running the full summarizer. Opt-in; off by default due to potential copyright concerns around reproducing source text. Pass `--batch-off` to override the configured `use_batch` setting and use synchronous streaming API calls instead of the Batches API.
 
 ### `render`
 
@@ -330,7 +333,7 @@ Upload the `output/` directory to the configured SFTP server. Requires the `SFTP
 
 ```
 frankenbote/
-├── config/             # YAML configuration (sources, filter rules, sections)
+├── config/             # YAML configuration (sources, filter rules, sections, LLM models)
 ├── src/frankenbote/    # Application source code
 │   ├── cli.py          # Click CLI entry point
 │   ├── body_fetcher.py # Async article text fetching
@@ -341,10 +344,16 @@ frankenbote/
 │   │   ├── detector.py # Runs registered strategies, aggregates verdicts
 │   │   └── strategies/ # One module per strategy (structured metadata, content length)
 │   ├── paywall_gate.py # Applies paywall verdicts in the pipeline
-│   ├── llm/            # LLM client abstraction (LLMClient base + AnthropicLLMClient)
-│   ├── curator.py      # AI curation via Claude
+│   ├── llm/            # LLM layer — the only code that knows about providers, models, prompts
+│   │   ├── base.py     # LLMClient ABC: primitives, model selection per task, retry loops
+│   │   ├── task.py     # TaskSpec: prompt + forced tool + response model (schema derived)
+│   │   ├── tasks/      # One module per AI step (curate, summarize, wrap_up)
+│   │   ├── config.py   # Loads config/config.yaml (provider, batch default, models)
+│   │   ├── anthropic_client.py  # Anthropic SDK implementation
+│   │   └── factory.py  # create_client(): picks the provider from config
+│   ├── curator.py      # AI curation: builds the user prompt, runs the curator task
 │   ├── selector.py     # Priority-based article selection
-│   ├── summarizer.py   # AI summarization via Claude
+│   ├── summarizer.py   # AI summaries and wrap-ups: user prompts + result mapping
 │   ├── renderer.py     # Jinja2 HTML rendering
 │   └── publisher.py    # SFTP publishing
 ├── templates/          # Jinja2 HTML templates

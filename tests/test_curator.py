@@ -1,16 +1,13 @@
 """Tests for frankenbote.curator — pure helpers plus curate() against a scripted LLM client."""
 
 import json
+import textwrap
 
 import pytest
 
-import textwrap
-
 from frankenbote.curator import (
-    _build_curator_tool,
     _build_user_prompt,
     _merge_decisions,
-    _normalize_tool_input,
     curate,
     load_curator_config,
 )
@@ -25,6 +22,20 @@ from tests.conftest import (
 
 
 # ── load_curator_config ───────────────────────────────────────────────────────
+
+_VALID_SECTIONS = textwrap.dedent("""\
+    curator:
+      guidance: Test guidance.
+      priorities:
+        - id: P1
+          label: Lokal
+          description: Local news
+      sections:
+        - id: kultur
+          display_name: Kultur
+          description: Culture events
+""")
+
 
 class TestLoadCuratorConfig:
     def test_file_not_found_raises(self, tmp_path):
@@ -45,61 +56,30 @@ class TestLoadCuratorConfig:
 
     def test_valid_yaml_returns_curator_config(self, tmp_path):
         cfg = tmp_path / "sections.yaml"
-        cfg.write_text(
-            textwrap.dedent("""\
-                curator:
-                  model: claude-sonnet-4-6
-                  guidance: Test guidance.
-                  priorities:
-                    - id: P1
-                      label: Lokal
-                      description: Local news
-                  sections:
-                    - id: kultur
-                      display_name: Kultur
-                      description: Culture events
-            """),
-            encoding="utf-8",
-        )
+        cfg.write_text(_VALID_SECTIONS, encoding="utf-8")
         result = load_curator_config(cfg)
-        assert result.model == "claude-sonnet-4-6"
         assert result.guidance == "Test guidance."
         assert len(result.priorities) == 1
         assert len(result.sections) == 1
+        assert not hasattr(result, "model")
 
+    def test_stale_curator_model_key_raises(self, tmp_path):
+        cfg = tmp_path / "sections.yaml"
+        cfg.write_text(_VALID_SECTIONS.replace(
+            "curator:\n", "curator:\n  model: claude-sonnet-4-6\n"
+        ), encoding="utf-8")
+        with pytest.raises(ValueError, match="'curator.model' has moved to config/config.yaml"):
+            load_curator_config(cfg)
 
-# ── _normalize_tool_input ────────────────────────────────────────────────────
+    def test_stale_summarizer_block_raises(self, tmp_path):
+        cfg = tmp_path / "sections.yaml"
+        cfg.write_text(_VALID_SECTIONS + "summarizer:\n  model: claude-haiku-4-5\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="'summarizer:' block has moved to config/config.yaml"):
+            load_curator_config(cfg)
 
-class TestNormalizeToolInput:
-    def test_list_passthrough(self):
-        decisions_list = [{"article_index": 0, "section": "politik", "priority": "P1",
-                           "relevance_score": 7.0, "rationale": "ok"}]
-        tool_input = {"decisions": decisions_list}
-        result = _normalize_tool_input(tool_input)
-        assert result["decisions"] is decisions_list
-
-    def test_json_string_is_parsed_to_list(self):
-        decisions_list = [{"article_index": 0, "section": "politik", "priority": "P1",
-                           "relevance_score": 7.0, "rationale": "ok"}]
-        tool_input = {"decisions": json.dumps(decisions_list)}
-        result = _normalize_tool_input(tool_input)
-        assert isinstance(result["decisions"], list)
-        assert result["decisions"][0]["article_index"] == 0
-
-    def test_invalid_json_string_raises_value_error(self):
-        tool_input = {"decisions": "not valid json {{{"}
-        with pytest.raises(ValueError, match="not valid JSON"):
-            _normalize_tool_input(tool_input)
-
-    def test_json_string_that_is_not_list_raises(self):
-        tool_input = {"decisions": json.dumps({"not": "a list"})}
-        with pytest.raises(ValueError):
-            _normalize_tool_input(tool_input)
-
-    def test_other_keys_preserved(self):
-        tool_input = {"decisions": [], "extra_key": "value"}
-        result = _normalize_tool_input(tool_input)
-        assert result["extra_key"] == "value"
+    def test_repo_sections_file_is_valid(self):
+        result = load_curator_config("config/sections.yaml")
+        assert result.sections
 
 
 # ── _merge_decisions ─────────────────────────────────────────────────────────
@@ -188,34 +168,9 @@ class TestBuildUserPrompt:
         assert "Unique Title XYZ" in prompt
 
 
-# ── _build_curator_tool ──────────────────────────────────────────────────────
-
-class TestBuildCuratorTool:
-    def test_tool_name_is_submit_decisions(self):
-        tool = _build_curator_tool(["politik", "wirtschaft"])
-        assert tool["name"] == "submit_decisions"
-
-    def test_section_ids_appear_in_enum(self):
-        tool = _build_curator_tool(["politik", "wirtschaft"])
-        section_enum = (
-            tool["input_schema"]["properties"]["decisions"]["items"]
-            ["properties"]["section"]["enum"]
-        )
-        assert "politik" in section_enum
-        assert "wirtschaft" in section_enum
-
-    def test_null_in_section_enum(self):
-        tool = _build_curator_tool(["politik"])
-        section_enum = (
-            tool["input_schema"]["properties"]["decisions"]["items"]
-            ["properties"]["section"]["enum"]
-        )
-        assert None in section_enum
-
-
 # ── curate() ─────────────────────────────────────────────────────────────────
 
-def _decision(idx: int, section="politik", priority="P1", score=8.0, rationale="Local."):
+def _decision(idx: int, section="politik_verwaltung", priority="P1", score=8.0, rationale="Local."):
     return {
         "article_index": idx, "section": section, "priority": priority,
         "relevance_score": score, "rationale": rationale,
@@ -224,50 +179,71 @@ def _decision(idx: int, section="politik", priority="P1", score=8.0, rationale="
 
 class TestCurate:
     def test_empty_candidates_skip_the_client(self):
-        assert curate([], make_curator_config(), client=ScriptedLLMClient()) == []
+        client = ScriptedLLMClient()
+        assert curate([], make_curator_config(), client) == []
+        assert client.calls == []
 
     def test_builds_request_and_merges_decisions(self):
-        config = make_curator_config(model="claude-test")
+        config = make_curator_config()
         candidates = [make_article(title="A"), make_article(title="B", link="https://example.com/b")]
         client = ScriptedLLMClient([
             [tool_result("curator", {"decisions": [_decision(0), _decision(1, section=None)]})]
         ])
 
-        curated = curate(candidates, config, client=client)
+        curated = curate(candidates, config, client)
 
         assert [c.article.title for c in curated] == ["A", "B"]
-        assert curated[0].section == "politik"
+        assert curated[0].section == "politik_verwaltung"
         assert curated[1].section is None
-        # Request shape handed to the client.
+        # Request shape handed to the client: task-addressed, no model.
         name, requests = client.calls[0]
         assert name == "submit_batch"
         [request] = requests
+        assert request["task"] == "curator"
         assert request["custom_id"] == "curator"
         params = request["params"]
-        assert params["model"] == "claude-test"
+        assert "model" not in params
         assert params["tool"]["name"] == "submit_decisions"
         assert params["max_tokens"] == 500 + 150 * 2
         assert "<article index=\"0\"" in params["user_prompt"]
         assert "UNTRUSTED INPUT" in params["system"]
 
-    def test_batch_off_uses_sync_call(self):
-        client = ScriptedLLMClient([tool_result("curator", {"decisions": [_decision(0)]})])
-        curate([make_article()], make_curator_config(), use_batch=False, client=client)
+    def test_tool_schema_enumerates_configured_sections(self):
+        client = ScriptedLLMClient([[tool_result("curator", {"decisions": [_decision(0)]})]])
+        curate([make_article()], make_curator_config(), client)
+        [request] = client.calls[0][1]
+        schema = request["params"]["tool"]["input_schema"]
+        section = schema["$defs"]["CuratorDecision"]["properties"]["section"]
+        assert {"enum": ["politik_verwaltung", "wirtschaft", "kultur"], "type": "string"} in section["anyOf"]
+
+    def test_client_batch_off_uses_sync_call(self):
+        client = ScriptedLLMClient(
+            [tool_result("curator", {"decisions": [_decision(0)]})], use_batch=False
+        )
+        curate([make_article()], make_curator_config(), client)
         assert [n for n, _ in client.calls] == ["call_tool"]
 
     def test_decisions_as_json_string_are_normalised(self):
-        client = ScriptedLLMClient([
-            tool_result("curator", {"decisions": json.dumps([_decision(0)])})
-        ])
-        curated = curate([make_article()], make_curator_config(), use_batch=False, client=client)
-        assert curated[0].section == "politik"
+        client = ScriptedLLMClient(
+            [tool_result("curator", {"decisions": json.dumps([_decision(0)])})], use_batch=False
+        )
+        curated = curate([make_article()], make_curator_config(), client)
+        assert curated[0].section == "politik_verwaltung"
+
+    def test_unknown_section_is_a_validation_failure(self, monkeypatch):
+        import frankenbote.llm.base as base_module
+        monkeypatch.setattr(base_module, "save_failure", lambda *a: "debug.txt")
+        bad = tool_result("curator", {"decisions": [_decision(0, section="not_configured")]})
+        client = ScriptedLLMClient([bad, bad], use_batch=False)
+        with pytest.raises(RuntimeError, match="Curator tool output invalid after retry"):
+            curate([make_article()], make_curator_config(), client)
 
     def test_retries_once_then_succeeds(self):
         client = ScriptedLLMClient([
             LLMTransientError("net"),
             tool_result("curator", {"decisions": [_decision(0)]}),
-        ])
-        curated = curate([make_article()], make_curator_config(), use_batch=False, client=client)
+        ], use_batch=False)
+        curated = curate([make_article()], make_curator_config(), client)
         assert len(curated) == 1
         assert len(client.calls) == 2
 
@@ -275,11 +251,6 @@ class TestCurate:
         import frankenbote.llm.base as base_module
         monkeypatch.setattr(base_module, "save_failure", lambda *a: "debug.txt")
         bad = tool_result("curator", None, "max_tokens")
-        client = ScriptedLLMClient([bad, bad])
+        client = ScriptedLLMClient([bad, bad], use_batch=False)
         with pytest.raises(RuntimeError, match="Curator failed twice"):
-            curate([make_article()], make_curator_config(), use_batch=False, client=client)
-
-    def test_missing_api_key_without_client_raises(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-            curate([make_article()], make_curator_config())
+            curate([make_article()], make_curator_config(), client)

@@ -1,0 +1,30 @@
+# Frankenbote LLM configuration.
+#
+# Which provider to talk to and which model each AI step uses. The pipeline
+# code never names a model itself — the LLM client resolves the model for a
+# step from this file (see src/frankenbote/llm/config.py).
+#
+# The API key is NOT configured here: it comes from ANTHROPIC_API_KEY in the
+# environment / .env file.
+
+llm:
+  # Provider implementation. Currently only "anthropic" exists.
+  provider: anthropic
+
+  # Use the Message Batches API (cheaper, asynchronous, polled until done)
+  # instead of synchronous streaming calls. `--batch-off` on the CLI
+  # overrides this for a single run.
+  use_batch: true
+
+  # One model per AI step. Pinned so behaviour is reproducible.
+  models:
+    # Curation: classifies every candidate into a section and priority.
+    curator: claude-sonnet-4-6
+
+    # Summaries: short German digest per article. Cheaper/faster model.
+    summarizer: claude-haiku-4-5-20251001
+
+    # Optional: model for the longer, multi-paragraph wrap-ups. Unset =
+    # reuse the summarizer model. Override only if wrap-ups need a
+    # different model than the short summaries.
+    # wrap_up: claude-sonnet-4-6

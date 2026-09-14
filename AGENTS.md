@@ -105,41 +105,63 @@ fetches always keep it in.
 
 ### LLM integration (llm/, curator.py, summarizer.py)
 
-All provider calls go through `llm/`. `llm/base.py` is provider-agnostic:
-it defines the request/result shapes (`ToolCallRequest`, `ToolCallResult`),
-the error hierarchy (`LLMError` → `LLMTransientError` → `LLMBatchTimeout`,
-all `RuntimeError` subclasses so the CLI's existing handlers report them),
-and the abstract `LLMClient` with four primitives (`call_tool`,
-`submit_batch`, `wait_for_batch`, `batch_results`) plus the **retry loops**
-built on them (`call_tool_with_retry`, `run_batch_with_retry`).
-`llm/anthropic_client.py` is the only module that imports the Anthropic
-SDK: `AnthropicLLMClient` reads `ANTHROPIC_API_KEY` on instantiation,
-implements the primitives, and translates SDK exceptions into the
-hierarchy above. To add a provider, subclass `LLMClient` in a new module
-under `llm/` and re-export it from `llm/__init__.py`; the retry loops are
-inherited, and pipeline code doesn't change.
+Everything LLM-related lives in `llm/`; the pipeline files never name a
+provider, a model, or a prompt:
 
-`curator.py` and `summarizer.py` only build prompts and tool schemas, wrap
-them in a `ToolCallRequest`, and hand them to the client together with a
-`parse` callable (their Pydantic validation). Every call is a **forced tool
-call** (`tool_choice`), so the API guarantees schema-valid output. The
-`use_batch` flag (`--batch-off` on the CLI) selects the **Batches API**
-(default) or synchronous streaming; both paths share the retry policy: two
-attempts, no backoff, retry on transient errors (network, timeout, batch
-timeout), a non-`tool_use` stop reason, a missing tool block, or a
-`ValidationError` from `parse`; on the final failure the loop calls
-`_debug.save_failure()` to dump raw output to `data/debug/` and raises
-`RuntimeError`. Attempts and backoff are constructor arguments of the
-client (`max_attempts`, `backoff_seconds`) with no config/env keys — only
-tests change them. The public entry points accept an optional
-`client: LLMClient` for injecting a fake in tests (see
-`tests/conftest.py::ScriptedLLMClient`).
+- `llm/base.py` — provider-agnostic core. `LLMClient` is the abstract base
+  with four primitives (`call_tool`, `submit_batch`, `wait_for_batch`,
+  `batch_results`), the **model selection** (`resolve_model(task)` reads
+  the `ModelConfig` it was constructed with), the task API the pipeline
+  calls (`run_task`, `run_task_batch`, `build_request`) and the **retry
+  loops**. Also the request/result shapes (`ToolCallRequest` carries a
+  `task` name, not a model) and the error hierarchy (`LLMError` →
+  `LLMTransientError` → `LLMBatchTimeout`, all `RuntimeError` subclasses
+  so the CLI's existing handlers report them).
+- `llm/task.py` — `TaskSpec`: one AI step, provider-neutral (name, label,
+  system prompt, forced tool name/description, Pydantic response model,
+  output-token budget, optional normalizer). The tool's JSON schema is
+  **derived from the response model** via `tool_schema()` — there is no
+  hand-written schema; add a field to the model and the schema follows.
+  Response models set `extra="forbid"` so the schema carries
+  `additionalProperties: false`.
+- `llm/tasks/` — the concrete specs: `curate.py` (`curator_task(section_ids)`,
+  a factory because the section enum comes from config), `summarize.py`
+  (`SUMMARIZER_TASK`), `wrap_up.py` (`WRAP_UP_TASK`). To add a step: new
+  module, export it from `tasks/__init__.py`, add its name to `TASK_NAMES`
+  and a model field in `llm/config.py`, and a key in `config/config.yaml`.
+- `llm/config.py` — `config/config.yaml` loader: provider, `use_batch`
+  default, one model per task (`ModelConfig.for_task()`, with the
+  `wrap_up` → `summarizer` fallback).
+- `llm/anthropic_client.py` — the only module importing the Anthropic SDK.
+  Implements the primitives, maps task → model when building the API
+  request, translates SDK exceptions into the hierarchy above.
+- `llm/factory.py` — `create_client(config, use_batch=...)`, the only place
+  a provider is chosen. `cli.py` builds one client per command and passes
+  it down; every LLM-calling function takes `client: LLMClient` as a
+  required argument. To add a provider (#44): subclass `LLMClient`, add it
+  to the factory and to the `provider` literal in `llm/config.py`.
+
+`curator.py` and `summarizer.py` only build the *user* prompts (article
+data with prompt-injection framing), call `client.run_task(SPEC, prompt,
+n_items=...)`, and map the parsed response back onto articles. Every call
+is a **forced tool call** (`tool_choice`), so the API guarantees
+schema-valid output. Batch vs. synchronous is a client-level setting
+(`use_batch` from config.yaml, `--batch-off` overrides per run); the
+per-article wrap-up path always runs synchronously. Retry policy, shared by
+every call: two attempts, no backoff, retry on transient errors (network,
+timeout, batch timeout), a non-`tool_use` stop reason, a missing tool
+block, or a `ValidationError` from the spec's `parse`; on the final
+failure the loop calls `_debug.save_failure()` to dump raw output to
+`data/debug/` and raises `RuntimeError`. Attempts and backoff are
+constructor arguments of the client with no config keys — only tests
+change them. Tests inject `tests/conftest.py::ScriptedLLMClient`.
 
 **Prompt language convention**: prompts are written in English (there's an
 open ticket to make output language configurable, and English source
 prompts make that easier), but every prompt has an explicit clause forcing
-German output regardless of prompt language (e.g. `summarizer.py`'s
-`LANGUAGE` clause, "Auf Deutsch, klare Sprache..."). When adding a new LLM
+German output regardless of prompt language (e.g. the `LANGUAGE` clause
+in `llm/tasks/wrap_up.py`, or "Auf Deutsch, klare Sprache..." in
+`llm/tasks/summarize.py`). When adding a new LLM
 prompt: write the instructions in English, add an explicit German-output
 clause, and do not retrofit this onto existing prompts unless asked.
 
@@ -151,14 +173,17 @@ feed content.
 
 ### Config
 
-Three YAML files under `config/` drive behavior (see README for full field
+Four YAML files under `config/` drive behavior (see README for full field
 docs): `sources.yaml` (feeds), `filter.yaml` (time window + keywords),
-`sections.yaml` (curator sections/priorities/guidance *and* the
-curator/summarizer model names, including optional `wrap_up_model`). Each
+`sections.yaml` (curator sections/priorities/guidance, selector targets) and
+`config.yaml` (LLM provider, batch default, one model per AI step). Each
 loader (`config.py::load_sources`, `curator.py::load_curator_config`,
-`summarizer.py::load_summarizer_config`, `selector.py::load_selector_targets`)
+`selector.py::load_selector_targets`, `llm/config.py::load_llm_config`)
 validates via Pydantic and raises `ValueError` with a message meant to be
 shown directly to the CLI user — keep that pattern when adding new config.
+Model names used to live in `sections.yaml`; `load_curator_config` rejects
+the stale `curator.model` / `summarizer:` keys with a pointer to
+`config.yaml` rather than silently ignoring them.
 
 ### Deployment specifics
 

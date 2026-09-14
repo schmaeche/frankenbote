@@ -10,27 +10,51 @@ from zoneinfo import ZoneInfo
 import click
 
 from frankenbote.config import load_sources
+from frankenbote.curator import curate, load_curator_config
 from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
+from frankenbote.llm import LLMClient, create_client, load_llm_config
 from frankenbote.models import Priority
 from frankenbote.paywall_gate import select_edition
+from frankenbote.publisher import load_publisher_config_from_env, publish
+from frankenbote.renderer import render_all
 from frankenbote.selector import SelectorOptions, load_selector_targets
-from frankenbote.storage import ( 
+from frankenbote.storage import (
+    load_candidates,
+    load_curated_raw,
     load_edition,
     save_candidates,
-    load_candidates,
     save_curated_raw,
-    load_curated_raw,
-    save_edition
+    save_edition,
 )
-from frankenbote.curator import load_curator_config, curate
-from frankenbote.renderer import render_all
-from frankenbote.summarizer import (
-    generate_wrap_ups,
-    load_summarizer_config,
-    summarize_edition,
+from frankenbote.summarizer import generate_wrap_ups, summarize_edition
+
+# Shared option for every command that talks to the LLM.
+_llm_config_option = click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default="config/config.yaml",
+    show_default=True,
+    help="LLM provider and per-step model configuration.",
 )
-from frankenbote.publisher import load_publisher_config_from_env, publish
+
+
+def _build_llm_client(config_path: Path, batch_off: bool) -> LLMClient:
+    """Load config.yaml and build the configured client, or exit with a message.
+
+    --batch-off overrides the configured use_batch default for this run.
+    """
+    try:
+        llm_cfg = load_llm_config(config_path)
+    except ValueError as e:
+        click.echo(f"❌ Failed to load LLM config: {e}", err=True)
+        sys.exit(1)
+    try:
+        return create_client(llm_cfg, use_batch=False if batch_off else None)
+    except (RuntimeError, ValueError) as e:  # e.g. missing API key
+        click.echo(f"❌ {e}", err=True)
+        sys.exit(1)
 
 
 @click.group()
@@ -83,7 +107,9 @@ def fetch(config: Path) -> None:
         click.echo(f"{r.source.name[:40]:40s} {len(r.articles):>8d}  {status}")
 
     click.echo("─" * 70)
-    click.echo(f"{'Total':40s} {total_articles:>8d}  {ok_count}/{len(results)} sources OK")
+    click.echo(
+        f"{'Total':40s} {total_articles:>8d}  {ok_count}/{len(results)} sources OK"
+    )
 
 
 @main.command()
@@ -134,6 +160,7 @@ def fetch(config: Path) -> None:
     is_flag=True,
     help="Use synchronous streaming API calls instead of the Batches API.",
 )
+@_llm_config_option
 def pipeline(
     sources_path: Path,
     filter_path: Path,
@@ -142,14 +169,13 @@ def pipeline(
     no_curate: bool,
     wrap_up: bool,
     batch_off: bool,
+    config_path: Path,
 ) -> None:
     """Run the full pipeline: fetch → filter → curate → select → summarize → render."""
-    use_batch = not batch_off
     try:
         sources = load_sources(sources_path)
         filter_cfg = load_filter_config(filter_path)
         curator_cfg = load_curator_config(sections_path)
-        summarizer_cfg = load_summarizer_config(sections_path)
         targets = load_selector_targets(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load config: {e}", err=True)
@@ -160,7 +186,9 @@ def pipeline(
     fetch_results = asyncio.run(fetch_all(sources))
     all_articles = [a for r in fetch_results for a in r.articles]
     failed = [r for r in fetch_results if not r.ok]
-    click.echo(f"  → {len(all_articles)} articles fetched, {len(failed)} source(s) failed")
+    click.echo(
+        f"  → {len(all_articles)} articles fetched, {len(failed)} source(s) failed"
+    )
     for r in failed:
         click.echo(f"    ✗ {r.source.name}: {r.error}", err=True)
 
@@ -169,20 +197,27 @@ def pipeline(
     result = filter_articles(all_articles, filter_cfg, now=now)
     s = result.stats
     click.echo("\nFilter:")
-    click.echo(f"  Window:  {result.window_start.isoformat()}  →  {result.window_end.isoformat()}")
+    click.echo(
+        f"  Window:  {result.window_start.isoformat()}  →  {result.window_end.isoformat()}"
+    )
     click.echo(f"  Kept:    {s.output_count} / {s.input_count}")
 
     edition_date = result.window_end
-    save_candidates(result.articles, edition_date, result.window_start, result.window_end)
+    save_candidates(
+        result.articles, edition_date, result.window_start, result.window_end
+    )
 
     if no_curate:
         click.echo("\nStopped before curation (--no-curate).")
         return
 
     # 3. Curate
-    click.echo(f"\nCurating {s.output_count} article(s) using {curator_cfg.model}…")
+    client = _build_llm_client(config_path, batch_off)
+    click.echo(
+        f"\nCurating {s.output_count} article(s) using {client.resolve_model('curator')}…"
+    )
     try:
-        curated = curate(result.articles, curator_cfg, use_batch=use_batch)
+        curated = curate(result.articles, curator_cfg, client)
     except RuntimeError as e:
         click.echo(f"❌ Curator failed: {e}", err=True)
         sys.exit(1)
@@ -190,22 +225,26 @@ def pipeline(
 
     # 4. Select (paywalled articles are skipped and replaced)
     options = SelectorOptions(edition_size=size, targets=targets)
-    edition, paywalled = asyncio.run(select_edition(
-        curated=curated,
-        config=curator_cfg,
-        source_ids_in_order=[s.id for s in sources],
-        options=options,
-        edition_date=edition_date,
-        window_start=result.window_start,
-        window_end=result.window_end,
-    ))
+    edition, paywalled = asyncio.run(
+        select_edition(
+            curated=curated,
+            config=curator_cfg,
+            source_ids_in_order=[s.id for s in sources],
+            options=options,
+            edition_date=edition_date,
+            window_start=result.window_start,
+            window_end=result.window_end,
+        )
+    )
     if paywalled:
         click.echo(f"\nPaywall: skipped {len(paywalled)} article(s):")
         for link in paywalled:
             click.echo(f"  ⨯ {link}")
     es = edition.stats
     effective = options.effective_targets
-    target_str = " ".join(f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4"))
+    target_str = " ".join(
+        f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4")
+    )
     click.echo(f"\nFinal edition: {es.selected} articles")
     click.echo(f"By priority (target: {target_str}):")
     for p in ("P1", "P2", "P3", "P4"):
@@ -221,32 +260,24 @@ def pipeline(
 
     # 5. Summarize
     try:
-        edition = summarize_edition(edition, model=summarizer_cfg.model, use_batch=use_batch)
+        edition = summarize_edition(edition, client)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)
     save_edition(edition, edition_date)
-    with_summary = sum(
-        1 for s in edition.sections for a in s.articles if a.ai_summary
-    )
+    with_summary = sum(1 for s in edition.sections for a in s.articles if a.ai_summary)
     total = sum(len(s.articles) for s in edition.sections)
     click.echo(f"  → {with_summary}/{total} summaries written")
 
     # 5b. Wrap-ups for lead articles (opt-in via --wrap-up)
     if wrap_up:
         try:
-            edition = generate_wrap_ups(
-                edition,
-                model=summarizer_cfg.wrap_up_model or summarizer_cfg.model,
-                use_batch=use_batch,
-            )
+            edition = generate_wrap_ups(edition, client)
         except RuntimeError as e:
             click.echo(f"❌ Wrap-up generation failed: {e}", err=True)
             sys.exit(1)
         save_edition(edition, edition_date)
-        with_wrap_up = sum(
-            1 for s in edition.sections for a in s.articles if a.wrap_up
-        )
+        with_wrap_up = sum(1 for s in edition.sections for a in s.articles if a.wrap_up)
         click.echo(f"  → {with_wrap_up} wrap-up(s) written")
     else:
         click.echo("  → Skipped wrap-ups (enable with --wrap-up)")
@@ -291,26 +322,34 @@ def pipeline(
     is_flag=True,
     help="Use synchronous streaming API calls instead of the Batches API.",
 )
-def curate_cmd(candidates_date, sections_path: Path, batch_off: bool) -> None:
+@_llm_config_option
+def curate_cmd(
+    candidates_date, sections_path: Path, batch_off: bool, config_path: Path
+) -> None:
     """Run the AI curator on a previously-saved candidates JSON file."""
     try:
         config = load_curator_config(sections_path)
     except ValueError as e:
         click.echo(f"❌ Failed to load sections config: {e}", err=True)
         sys.exit(1)
+    client = _build_llm_client(config_path, batch_off)
 
     try:
         candidates = load_candidates(candidates_date)
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)
-        click.echo("    Run `frankenbote pipeline` first to generate candidates.", err=True)
+        click.echo(
+            "    Run `frankenbote pipeline` first to generate candidates.", err=True
+        )
         sys.exit(1)
 
-    click.echo(f"Curating {len(candidates)} article(s) using {config.model}…")
+    click.echo(
+        f"Curating {len(candidates)} article(s) using {client.resolve_model('curator')}…"
+    )
     click.echo("(One API call. This may take 30–90 seconds.)\n")
 
     try:
-        curated = curate(candidates, config, use_batch=not batch_off)
+        curated = curate(candidates, config, client)
     except RuntimeError as e:
         click.echo(f"❌ Curator failed: {e}", err=True)
         sys.exit(1)
@@ -387,13 +426,15 @@ def select_cmd(
         sys.exit(1)
 
     options = SelectorOptions(edition_size=size, targets=targets)
-    edition, paywalled = asyncio.run(select_edition(
-        curated=curated,
-        config=config,
-        source_ids_in_order=source_ids,
-        options=options,
-        edition_date=curated_date,
-    ))
+    edition, paywalled = asyncio.run(
+        select_edition(
+            curated=curated,
+            config=config,
+            source_ids_in_order=source_ids,
+            options=options,
+            edition_date=curated_date,
+        )
+    )
     if paywalled:
         click.echo(f"Paywall: skipped {len(paywalled)} article(s):")
         for link in paywalled:
@@ -401,8 +442,12 @@ def select_cmd(
 
     s = edition.stats
     effective = options.effective_targets
-    target_str = " ".join(f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4"))
-    click.echo(f"Selection from {s.candidates_in} candidates ({s.curated_kept} eligible after curation):")
+    target_str = " ".join(
+        f"{p}={effective[Priority(p)]:.0%}" for p in ("P1", "P2", "P3", "P4")
+    )
+    click.echo(
+        f"Selection from {s.candidates_in} candidates ({s.curated_kept} eligible after curation):"
+    )
     click.echo(f"  → {s.selected} articles in final edition\n")
     click.echo(f"By priority (target: {target_str}):")
     for p in ("P1", "P2", "P3", "P4"):
@@ -436,25 +481,15 @@ def render_cmd() -> None:
     help="Edition date (YYYY-MM-DD) of the edition JSON to summarize.",
 )
 @click.option(
-    "--sections-config",
-    "sections_path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default="config/sections.yaml",
-    show_default=True,
-)
-@click.option(
     "--batch-off",
     "batch_off",
     is_flag=True,
     help="Use synchronous streaming API calls instead of the Batches API.",
 )
-def summarize_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
+@_llm_config_option
+def summarize_cmd(edition_date, batch_off: bool, config_path: Path) -> None:
     """Run the AI summarizer on a previously-saved edition JSON file."""
-    try:
-        summarizer_cfg = load_summarizer_config(sections_path)
-    except ValueError as e:
-        click.echo(f"❌ Failed to load sections config: {e}", err=True)
-        sys.exit(1)
+    client = _build_llm_client(config_path, batch_off)
 
     try:
         edition = load_edition(edition_date)
@@ -464,18 +499,18 @@ def summarize_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
         sys.exit(1)
 
     try:
-        edition = summarize_edition(edition, model=summarizer_cfg.model, use_batch=not batch_off)
+        edition = summarize_edition(edition, client)
     except RuntimeError as e:
         click.echo(f"❌ Summarizer failed: {e}", err=True)
         sys.exit(1)
 
     # Stats
     total = sum(len(s.articles) for s in edition.sections)
-    with_summary = sum(
-        1 for s in edition.sections for a in s.articles if a.ai_summary
+    with_summary = sum(1 for s in edition.sections for a in s.articles if a.ai_summary)
+    click.echo(
+        f"\nSummarized: {with_summary}/{total} articles "
+        f"({total - with_summary} returned null)"
     )
-    click.echo(f"\nSummarized: {with_summary}/{total} articles "
-               f"({total - with_summary} returned null)")
 
     out_path = save_edition(edition, edition_date)
     click.echo(f"  → Updated {out_path}")
@@ -489,29 +524,19 @@ def summarize_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
     help="Edition date (YYYY-MM-DD) of the edition JSON to generate wrap-ups for.",
 )
 @click.option(
-    "--sections-config",
-    "sections_path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default="config/sections.yaml",
-    show_default=True,
-)
-@click.option(
     "--batch-off",
     "batch_off",
     is_flag=True,
     help="Use synchronous streaming API calls instead of the Batches API.",
 )
-def wrap_up_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
+@_llm_config_option
+def wrap_up_cmd(edition_date, batch_off: bool, config_path: Path) -> None:
     """Generate longer wrap-ups for lead articles in a saved edition JSON.
 
     Runs only the wrap-up LLM call — useful for iterating on that step
     without re-running the summarizer or the rest of the pipeline.
     """
-    try:
-        summarizer_cfg = load_summarizer_config(sections_path)
-    except ValueError as e:
-        click.echo(f"❌ Failed to load sections config: {e}", err=True)
-        sys.exit(1)
+    client = _build_llm_client(config_path, batch_off)
 
     try:
         edition = load_edition(edition_date)
@@ -521,18 +546,12 @@ def wrap_up_cmd(edition_date, sections_path: Path, batch_off: bool) -> None:
         sys.exit(1)
 
     try:
-        edition = generate_wrap_ups(
-            edition,
-            model=summarizer_cfg.wrap_up_model or summarizer_cfg.model,
-            use_batch=not batch_off,
-        )
+        edition = generate_wrap_ups(edition, client)
     except RuntimeError as e:
         click.echo(f"❌ Wrap-up generation failed: {e}", err=True)
         sys.exit(1)
 
-    with_wrap_up = sum(
-        1 for s in edition.sections for a in s.articles if a.wrap_up
-    )
+    with_wrap_up = sum(1 for s in edition.sections for a in s.articles if a.wrap_up)
     click.echo(f"\nWrap-ups written: {with_wrap_up}")
 
     out_path = save_edition(edition, edition_date)
@@ -548,19 +567,15 @@ def publish_cmd() -> None:
         click.echo(f"❌ {e}", err=True)
         sys.exit(1)
 
-    click.echo(
-        f"Publishing to {config.username}@{config.host}:{config.remote_dir}…"
-    )
+    click.echo(f"Publishing to {config.username}@{config.host}:{config.remote_dir}…")
     try:
         stats = publish(config)
     except Exception as e:
         click.echo(f"❌ Publish failed: {type(e).__name__}: {e}", err=True)
         sys.exit(1)
 
-    click.echo(
-        f"  → Uploaded: {stats['uploaded']}, pruned: {stats['pruned']}"
-    )
-    
+    click.echo(f"  → Uploaded: {stats['uploaded']}, pruned: {stats['pruned']}")
+
 
 if __name__ == "__main__":
     main()

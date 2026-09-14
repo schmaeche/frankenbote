@@ -13,6 +13,7 @@ from frankenbote.llm import (
     LLMBatchTimeout,
     LLMError,
     LLMTransientError,
+    ModelConfig,
     ToolCallParams,
     ToolCallRequest,
 )
@@ -21,6 +22,8 @@ from frankenbote.llm.anthropic_client import parse_batch_results
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+_MODELS = ModelConfig(curator="claude-curator", summarizer="claude-summarizer")
+
 _TOOL = {
     "name": "submit_things",
     "description": "d",
@@ -28,11 +31,11 @@ _TOOL = {
 }
 
 
-def _request(custom_id: str = "req", model: str = "claude-test") -> ToolCallRequest:
+def _request(custom_id: str = "req", task: str = "curator") -> ToolCallRequest:
     return ToolCallRequest(
+        task=task,
         custom_id=custom_id,
         params=ToolCallParams(
-            model=model,
             system="SYSTEM",
             user_prompt="USER",
             tool=_TOOL,
@@ -92,7 +95,7 @@ def sdk() -> MagicMock:
 
 @pytest.fixture
 def client(sdk) -> AnthropicLLMClient:
-    return AnthropicLLMClient(sdk_client=sdk, batch_poll_interval=5, batch_timeout=100)
+    return AnthropicLLMClient(_MODELS, sdk_client=sdk, batch_poll_interval=5, batch_timeout=100)
 
 
 def _install_stream(sdk, message, text_chunks=()):
@@ -109,7 +112,7 @@ class TestConstruction:
     def test_missing_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY is not set"):
-            AnthropicLLMClient()
+            AnthropicLLMClient(_MODELS)
 
     def test_reads_api_key_from_env(self, monkeypatch):
         created = {}
@@ -120,7 +123,7 @@ class TestConstruction:
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
         monkeypatch.setattr(ac_module.anthropic, "Anthropic", fake_anthropic)
-        AnthropicLLMClient()
+        AnthropicLLMClient(_MODELS)
         assert created["api_key"] == "sk-env"
 
     def test_explicit_key_wins_over_env(self, monkeypatch):
@@ -130,19 +133,24 @@ class TestConstruction:
             ac_module.anthropic, "Anthropic",
             lambda api_key: created.setdefault("api_key", api_key) and MagicMock(),
         )
-        AnthropicLLMClient(api_key="sk-explicit")
+        AnthropicLLMClient(_MODELS, api_key="sk-explicit")
         assert created["api_key"] == "sk-explicit"
 
     def test_injected_sdk_client_needs_no_key(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        c = AnthropicLLMClient(sdk_client=MagicMock())
+        c = AnthropicLLMClient(_MODELS, sdk_client=MagicMock())
+        assert c.models is _MODELS
+        assert c.use_batch is True
         assert c.max_attempts == 2
         assert c.backoff_seconds == 0
         assert c.batch_poll_interval == AnthropicLLMClient.BATCH_POLL_INTERVAL
         assert c.batch_timeout == AnthropicLLMClient.BATCH_TIMEOUT
 
-    def test_retry_settings_are_constructor_args(self):
-        c = AnthropicLLMClient(sdk_client=MagicMock(), max_attempts=3, backoff_seconds=1.5)
+    def test_settings_are_constructor_args(self):
+        c = AnthropicLLMClient(
+            _MODELS, sdk_client=MagicMock(), use_batch=False, max_attempts=3, backoff_seconds=1.5
+        )
+        assert c.use_batch is False
         assert c.max_attempts == 3
         assert c.backoff_seconds == 1.5
 
@@ -152,14 +160,29 @@ class TestConstruction:
 class TestCallTool:
     def test_builds_forced_tool_use_request(self, client, sdk):
         _install_stream(sdk, _message([_tool_block({"a": 1})]))
-        client.call_tool(_request(model="claude-x"))
+        client.call_tool(_request(task="curator"))
         kwargs = sdk.messages.stream.call_args.kwargs
-        assert kwargs["model"] == "claude-x"
+        assert kwargs["model"] == "claude-curator"
         assert kwargs["max_tokens"] == 123
         assert kwargs["system"] == "SYSTEM"
         assert kwargs["tools"] == [_TOOL]
         assert kwargs["tool_choice"] == {"type": "tool", "name": "submit_things"}
         assert kwargs["messages"] == [{"role": "user", "content": "USER"}]
+
+    def test_model_resolved_per_task(self, client, sdk):
+        _install_stream(sdk, _message([_tool_block({})]))
+        client.call_tool(_request(task="summarizer"))
+        assert sdk.messages.stream.call_args.kwargs["model"] == "claude-summarizer"
+
+    def test_wrap_up_falls_back_to_summarizer_model(self, client, sdk):
+        _install_stream(sdk, _message([_tool_block({})]))
+        client.call_tool(_request(task="wrap_up"))
+        assert sdk.messages.stream.call_args.kwargs["model"] == "claude-summarizer"
+
+    def test_unknown_task_raises_before_calling_sdk(self, client, sdk):
+        with pytest.raises(ValueError, match="Unknown LLM task"):
+            client.call_tool(_request(task="headline"))
+        sdk.messages.stream.assert_not_called()
 
     def test_returns_tool_input_and_stop_reason(self, client, sdk):
         msg = _message([_tool_block({"a": 1})])
@@ -227,13 +250,13 @@ class TestSubmitBatch:
         sdk.messages.batches.create.return_value.id = "msgbatch_1"
         assert client.submit_batch([_request("a")]) == "msgbatch_1"
 
-    def test_builds_one_request_per_item(self, client, sdk):
+    def test_builds_one_request_per_item_with_resolved_models(self, client, sdk):
         sdk.messages.batches.create.return_value.id = "b"
-        client.submit_batch([_request("a", model="m1"), _request("b", model="m2")])
+        client.submit_batch([_request("a", task="curator"), _request("b", task="wrap_up")])
         requests = sdk.messages.batches.create.call_args.kwargs["requests"]
         assert [r["custom_id"] for r in requests] == ["a", "b"]
-        assert requests[0]["params"]["model"] == "m1"
-        assert requests[1]["params"]["model"] == "m2"
+        assert requests[0]["params"]["model"] == "claude-curator"
+        assert requests[1]["params"]["model"] == "claude-summarizer"
         assert requests[0]["params"]["tool_choice"] == {"type": "tool", "name": "submit_things"}
         assert requests[0]["params"]["messages"] == [{"role": "user", "content": "USER"}]
         assert requests[0]["params"]["system"] == "SYSTEM"
@@ -297,7 +320,7 @@ class TestWaitForBatch:
     def test_sleep_never_overshoots_deadline(self, sdk, monkeypatch):
         fake = _FakeTime()
         monkeypatch.setattr(ac_module, "time", fake)
-        c = AnthropicLLMClient(sdk_client=sdk, batch_poll_interval=30, batch_timeout=7)
+        c = AnthropicLLMClient(_MODELS, sdk_client=sdk, batch_poll_interval=30, batch_timeout=7)
         self._statuses(sdk, "in_progress", "ended")
         c.wait_for_batch("b1")
         assert fake.sleeps == [7]

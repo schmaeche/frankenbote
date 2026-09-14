@@ -9,7 +9,7 @@ The only module in the pipeline that imports the Anthropic SDK. It owns:
   - translation of Anthropic responses into ToolCallResult and of SDK
     exceptions into the provider-neutral LLMError hierarchy.
 
-Retry behaviour is inherited unchanged from LLMClient.
+Model selection and retry behaviour are inherited unchanged from LLMClient.
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ from frankenbote.llm.base import (
     LLMClient,
     LLMError,
     LLMTransientError,
-    ToolCallParams,
     ToolCallRequest,
     ToolCallResult,
 )
+from frankenbote.llm.config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +68,10 @@ class AnthropicLLMClient(LLMClient):
 
     def __init__(
         self,
-        api_key: str | None = None,
+        models: ModelConfig,
         *,
+        use_batch: bool = True,
+        api_key: str | None = None,
         max_attempts: int = 2,
         backoff_seconds: float = 0.0,
         batch_poll_interval: float | None = None,
@@ -81,7 +83,12 @@ class AnthropicLLMClient(LLMClient):
         sdk_client lets tests inject a stand-in for anthropic.Anthropic; when
         given, no API key is required.
         """
-        super().__init__(max_attempts=max_attempts, backoff_seconds=backoff_seconds)
+        super().__init__(
+            models,
+            use_batch=use_batch,
+            max_attempts=max_attempts,
+            backoff_seconds=backoff_seconds,
+        )
         if sdk_client is None:
             api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
             if not api_key:
@@ -103,9 +110,7 @@ class AnthropicLLMClient(LLMClient):
         """Streaming Messages call with the tool forced via tool_choice."""
         with (
             _translate_errors(),
-            self._client.messages.stream(
-                **_message_kwargs(request["params"])
-            ) as stream,
+            self._client.messages.stream(**self._message_kwargs(request)) as stream,
         ):
             for chunks_seen, _chunk in enumerate(stream.text_stream, start=1):
                 if chunks_seen % self.PROGRESS_EVERY == 0:
@@ -120,7 +125,7 @@ class AnthropicLLMClient(LLMClient):
     def submit_batch(self, requests: Sequence[ToolCallRequest]) -> str:
         with _translate_errors():
             batch = self._client.messages.batches.create(
-                requests=[_to_batch_request(r) for r in requests]
+                requests=[self._to_batch_request(r) for r in requests]
             )
         return batch.id
 
@@ -153,6 +158,30 @@ class AnthropicLLMClient(LLMClient):
     def batch_results(self, batch_id: str) -> list[ToolCallResult]:
         with _translate_errors():
             return parse_batch_results(self._client.messages.batches.results(batch_id))
+
+    # ---- request translation ----
+
+    def _message_kwargs(self, request: ToolCallRequest) -> dict[str, Any]:
+        """Messages-API parameters for a request; shared by sync and batch.
+
+        This is where the task name becomes a concrete model id.
+        """
+        params = request["params"]
+        tool = params["tool"]
+        return {
+            "model": self.resolve_model(request["task"]),
+            "max_tokens": params["max_tokens"],
+            "system": params["system"],
+            "tools": [tool],
+            "tool_choice": {"type": "tool", "name": tool["name"]},
+            "messages": [{"role": "user", "content": params["user_prompt"]}],
+        }
+
+    def _to_batch_request(self, request: ToolCallRequest) -> BatchRequest:
+        return BatchRequest(
+            custom_id=request["custom_id"],
+            params=MessageCreateParamsNonStreaming(**self._message_kwargs(request)),
+        )
 
 
 # -------- Pure translation helpers (unit-tested without the SDK) --------
@@ -188,23 +217,3 @@ def _find_tool_input(msg: Any) -> dict | None:
             block_input = getattr(block, "input", None)
             return block_input if isinstance(block_input, dict) else None
     return None
-
-
-def _message_kwargs(params: ToolCallParams) -> dict[str, Any]:
-    """Shared Messages-API parameters for sync and batch calls."""
-    tool = params["tool"]
-    return {
-        "model": params["model"],
-        "max_tokens": params["max_tokens"],
-        "system": params["system"],
-        "tools": [tool],
-        "tool_choice": {"type": "tool", "name": tool["name"]},
-        "messages": [{"role": "user", "content": params["user_prompt"]}],
-    }
-
-
-def _to_batch_request(request: ToolCallRequest) -> BatchRequest:
-    return BatchRequest(
-        custom_id=request["custom_id"],
-        params=MessageCreateParamsNonStreaming(**_message_kwargs(request["params"])),
-    )
