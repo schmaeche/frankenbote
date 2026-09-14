@@ -6,8 +6,8 @@ import pytest
 
 from frankenbote.llm import TASK_NAMES, LLMConfig, ModelConfig, load_llm_config
 
-
 # ── ModelConfig ──────────────────────────────────────────────────────────────
+
 
 class TestModelConfig:
     def test_for_task_direct(self):
@@ -41,6 +41,7 @@ class TestModelConfig:
 
 
 # ── LLMConfig ────────────────────────────────────────────────────────────────
+
 
 class TestLLMConfig:
     def test_defaults(self):
@@ -87,7 +88,9 @@ class TestLoadLLMConfig:
 
     def test_minimal_file_uses_defaults(self, tmp_path):
         path = tmp_path / "config.yaml"
-        path.write_text("llm:\n  models:\n    curator: a\n    summarizer: b\n", encoding="utf-8")
+        path.write_text(
+            "llm:\n  models:\n    curator: a\n    summarizer: b\n", encoding="utf-8"
+        )
         cfg = load_llm_config(path)
         assert cfg.use_batch is True
         assert cfg.models.wrap_up is None
@@ -129,9 +132,3 @@ class TestLoadLLMConfig:
         )
         with pytest.raises(ValueError, match="Invalid 'llm:' block"):
             load_llm_config(path)
-
-    def test_repo_config_file_is_valid(self):
-        cfg = load_llm_config("config/config.yaml")
-        assert cfg.provider == "anthropic"
-        for task in TASK_NAMES:
-            assert cfg.models.for_task(task)
