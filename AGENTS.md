@@ -49,6 +49,16 @@ project's own toolchain. When you touch a file for a task, it's fine to fix
 ruff issues in that file as part of the change; don't do a repo-wide ruff
 cleanup unless asked.
 
+The same applies to **Pylance** (VS Code's Pyright-based type checker):
+there is no `pyrightconfig.json` or `[tool.pyright]` section, so its
+findings come from the editor's defaults, not the project. Treat them like
+ruff findings — resolve them in files you touch, don't sweep the repo. Two
+things to know when writing type hints here: the project requires Python
+3.14, so the short generic forms are fine (`Generator[None]` instead of
+`Generator[None, None, None]`); and a function decorated with
+`@contextmanager` must be annotated `-> Generator[T]`, not `-> Iterator[T]`
+— Pylance flags the latter as deprecated (see `llm/anthropic_client.py`).
+
 ## Architecture
 
 ### Pipeline data flow

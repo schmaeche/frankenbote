@@ -14,9 +14,10 @@ Retry behaviour is inherited unchanged from LLMClient.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Generator, Iterable, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -36,6 +37,8 @@ from frankenbote.llm.base import (
     ToolCallResult,
 )
 
+logger = logging.getLogger(__name__)
+
 # Errors worth a retry. Everything else in anthropic.APIError (4xx, 5xx the
 # SDK already retried internally, …) is surfaced as a plain LLMError.
 _TRANSIENT_ERRORS = (
@@ -46,7 +49,7 @@ _TRANSIENT_ERRORS = (
 
 
 @contextmanager
-def _translate_errors() -> Iterator[None]:
+def _translate_errors() -> Generator[None]:
     """Map SDK exceptions onto the provider-neutral hierarchy."""
     try:
         yield
@@ -86,22 +89,28 @@ class AnthropicLLMClient(LLMClient):
             sdk_client = anthropic.Anthropic(api_key=api_key)
         self._client = sdk_client
         self.batch_poll_interval = (
-            self.BATCH_POLL_INTERVAL if batch_poll_interval is None else batch_poll_interval
+            self.BATCH_POLL_INTERVAL
+            if batch_poll_interval is None
+            else batch_poll_interval
         )
-        self.batch_timeout = self.BATCH_TIMEOUT if batch_timeout is None else batch_timeout
+        self.batch_timeout = (
+            self.BATCH_TIMEOUT if batch_timeout is None else batch_timeout
+        )
 
     # ---- primitives ----
 
     def call_tool(self, request: ToolCallRequest) -> ToolCallResult:
         """Streaming Messages call with the tool forced via tool_choice."""
-        with _translate_errors():
-            with self._client.messages.stream(**_message_kwargs(request["params"])) as stream:
-                chunks_seen = 0
-                for _chunk in stream.text_stream:
-                    chunks_seen += 1
-                    if chunks_seen % self.PROGRESS_EVERY == 0:
-                        click.echo(".", nl=False)
-                msg = stream.get_final_message()
+        with (
+            _translate_errors(),
+            self._client.messages.stream(
+                **_message_kwargs(request["params"])
+            ) as stream,
+        ):
+            for chunks_seen, _chunk in enumerate(stream.text_stream, start=1):
+                if chunks_seen % self.PROGRESS_EVERY == 0:
+                    click.echo(".", nl=False)
+            msg = stream.get_final_message()
 
         tool_input = _find_tool_input(msg)
         return ToolCallResult(
@@ -131,7 +140,7 @@ class AnthropicLLMClient(LLMClient):
                 click.echo(f"  Timeout — cancelling batch {batch_id}…")
                 try:
                     self._client.messages.batches.cancel(batch_id)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110
                     pass
                 raise LLMBatchTimeout(
                     f"Batch {batch_id} timed out after {self.batch_timeout}s"
