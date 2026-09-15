@@ -78,7 +78,19 @@ literals (`"local"` for a `Category`, a `str` for `HttpUrl`, a dict for
 `Window`). Pydantic coerces those at runtime, but pyright types `__init__`
 from the field annotations and reported ~190 false positives. Don't
 "fix" the tests to satisfy it, and don't widen `include` without reading
-that pile first.
+that pile first. Note both `include = ["src"]` *and* `ignore = ["tests"]`
+are needed: `include` scopes a command-line run, but the language server
+analyses whatever file is open in the editor regardless, so without
+`ignore` a test file open in VS Code still lights up.
+
+Editor setup: both extensions read `pyproject.toml` themselves, so there
+is nothing to duplicate in VS Code settings — and rule lists must *not* be
+duplicated there, since `ruff.lint.select` in editor settings overrides
+pyproject and reintroduces the drift this config exists to prevent. Worth
+setting: `ruff.importStrategy: "fromEnvironment"` (use the pinned ruff, not
+the extension's bundled copy) and `python.analysis.diagnosticMode:
+"workspace"` (match the CLI instead of checking only open files).
+`.vscode/` is gitignored, so those stay per-machine.
 
 Two things to know when writing type hints here: the project requires
 Python 3.14, so the short generic forms are fine (`Generator[None]` instead

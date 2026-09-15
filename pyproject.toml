@@ -85,6 +85,10 @@ ignore = [
 # runtime, but pyright types __init__ from the field annotations and reports
 # ~190 false positives. Not worth muting rule by rule.
 include = ["src"]
+# `include` alone does not quiet the editor: Pylance analyses whatever file
+# you have open, in or out of scope. `ignore` suppresses the diagnostics for
+# those paths too, so a test file open in VS Code stays clean.
+ignore = ["tests"]
 pythonVersion = "3.14"
 # Matches Pylance's default typeCheckingMode in VS Code, so the CLI and the
 # editor agree.
