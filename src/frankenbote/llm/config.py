@@ -43,7 +43,7 @@ class LLMConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["anthropic"] = "anthropic"
+    provider: Literal["anthropic", "openai"] = "anthropic"
     use_batch: bool = True
     models: ModelConfig
 

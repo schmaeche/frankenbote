@@ -4,8 +4,30 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from frankenbote.llm import AnthropicLLMClient, LLMConfig, ModelConfig, create_client
+from frankenbote.llm import (
+    AnthropicLLMClient,
+    LLMConfig,
+    ModelConfig,
+    OpenAILLMClient,
+    api_key_env,
+    create_client,
+)
 from frankenbote.llm import anthropic_client as ac_module
+from frankenbote.llm import openai_client as oc_module
+
+
+@pytest.fixture
+def fake_openai_sdk(monkeypatch):
+    """Replace openai.OpenAI so no key is needed; records the api_key."""
+    created = {}
+
+    def fake_openai(api_key):
+        created["api_key"] = api_key
+        return MagicMock()
+
+    monkeypatch.setattr(oc_module.openai, "OpenAI", fake_openai)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-env")
+    return created
 
 
 @pytest.fixture
@@ -53,9 +75,31 @@ class TestCreateClient:
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
             create_client(LLMConfig(models=_MODELS))
 
+    def test_openai_client_from_config(self, fake_openai_sdk):
+        client = create_client(LLMConfig(provider="openai", models=_MODELS, use_batch=False))
+        assert isinstance(client, OpenAILLMClient)
+        assert client.models is _MODELS
+        assert client.use_batch is False
+        assert fake_openai_sdk["api_key"] == "sk-openai-env"
+
+    def test_openai_missing_key_raises_runtime_error(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+            create_client(LLMConfig(provider="openai", models=_MODELS))
+
     def test_unsupported_provider_raises(self):
         # Pydantic rejects unknown providers at validation time; bypass it to
         # exercise the factory's own guard.
-        config = LLMConfig.model_construct(provider="openai", use_batch=True, models=_MODELS)
-        with pytest.raises(ValueError, match="Unsupported LLM provider 'openai'"):
+        config = LLMConfig.model_construct(provider="gemini", use_batch=True, models=_MODELS)
+        with pytest.raises(ValueError, match="Unsupported LLM provider 'gemini'"):
             create_client(config)
+
+
+class TestApiKeyEnv:
+    def test_per_provider(self):
+        assert api_key_env("anthropic") == "ANTHROPIC_API_KEY"
+        assert api_key_env("openai") == "OPENAI_API_KEY"
+
+    def test_unknown_provider_raises(self):
+        with pytest.raises(ValueError, match="Unsupported LLM provider 'gemini'"):
+            api_key_env("gemini")

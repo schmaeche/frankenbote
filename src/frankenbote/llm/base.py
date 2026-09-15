@@ -459,5 +459,5 @@ def _describe_stop(stop_reason: str) -> str:
     if stop_reason == "max_tokens":
         return "response truncated (max_tokens hit)"
     if stop_reason == "refusal":
-        return "Claude refused on safety grounds"
+        return "model refused on safety grounds"
     return f"unexpected stop_reason {stop_reason!r}"

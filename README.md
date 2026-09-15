@@ -24,7 +24,7 @@ The pipeline runs in sequential stages:
 ### Prerequisites
 
 - Python 3.14+
-- An [Anthropic API key](https://console.anthropic.com/)
+- An [Anthropic API key](https://console.anthropic.com/) or an [OpenAI API key](https://platform.openai.com/api-keys), depending on `llm.provider` in `config/config.yaml`
 - (Optional) Docker, for running in a container
 - (Optional) An SFTP-accessible web server for publishing
 
@@ -53,7 +53,8 @@ cp .env.example .env
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | API key from console.anthropic.com |
+| `ANTHROPIC_API_KEY` | With `provider: anthropic` | API key from console.anthropic.com |
+| `OPENAI_API_KEY` | With `provider: openai` | API key from platform.openai.com |
 | `FRANKENBOTE_ENV` | No | `development` (default) or `production` |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`) |
 | `SFTP_HOST` | Publishing only | Hostname of your web server |
@@ -68,7 +69,9 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 - `config/sources.yaml` — RSS feed list; toggle sources on/off with `enabled: true/false`
 - `config/filter.yaml` — time window and keyword filtering rules
 - `config/sections.yaml` — section definitions, priority tiers, editorial guidance, and selector targets
-- `config/config.yaml` — LLM settings: provider, whether to use the Batches API by default, and the model for each AI step (`curator`, `summarizer`, and an optional `wrap_up` that falls back to the summarizer model)
+- `config/config.yaml` — LLM settings: provider (`anthropic` or `openai`), whether to use the provider's batch API by default, and the model for each AI step (`curator`, `summarizer`, and an optional `wrap_up` that falls back to the summarizer model)
+
+With `provider: openai`, calls go through the Responses API: the tool is sent in strict mode and reasoning effort is fixed to `none`, because `max_output_tokens` counts reasoning tokens and the per-step budgets have no room for them. OpenAI batches have a 24-hour completion window, but the client stops polling and cancels after 60 minutes, as it does for Anthropic. If batches regularly take longer, run with `--batch-off`.
 
 ---
 
@@ -107,7 +110,7 @@ ptw . -- -x --tb=short -q   # watch mode
 
 ### Coverage notes
 
-`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. `generate_wrap_ups()` is marked `# pragma: no cover` because it fetches article bodies over the network. All LLM calls go through the `llm/` client abstraction, so `curate()` and `summarize_edition()` are unit-tested against a scripted in-memory client and the Anthropic client against a mocked SDK. Each task in `llm/tasks/` additionally has closed-loop tests — inputs to rendered prompt, tool input to aligned outputs — with the prompts pinned against `tests/fixtures/prompts/`. Everything else is covered at ≥ 70%.
+`publisher.py`, `cli.py`, and `__main__.py` are excluded from coverage measurement — they require a live SFTP server or runtime context that cannot be reproduced in unit tests. `generate_wrap_ups()` is marked `# pragma: no cover` because it fetches article bodies over the network. All LLM calls go through the `llm/` client abstraction, so `curate()` and `summarize_edition()` are unit-tested against a scripted in-memory client and the Anthropic and OpenAI clients against mocked SDKs. Each task in `llm/tasks/` additionally has closed-loop tests — inputs to rendered prompt, tool input to aligned outputs — with the prompts pinned against `tests/fixtures/prompts/`. Everything else is covered at ≥ 70%.
 
 ---
 
@@ -126,8 +129,8 @@ long-running service), so it fits naturally into any cron-like scheduler.
    (code, templates, assets); only configuration and data are externally
    supplied.
 
-2. **Separate dev and prod credentials.** Use a different Anthropic API
-   key per environment to isolate cost reporting and limit blast radius
+2. **Separate dev and prod credentials.** Use a different LLM API key
+   (Anthropic or OpenAI) per environment to isolate cost reporting and limit blast radius
    if one key leaks. The same applies to SSH keys for SFTP publishing:
    keep a passphrase-protected key on the development machine and a
    separate passphrase-less key on the server (since cron jobs cannot
@@ -351,6 +354,7 @@ frankenbote/
 │   │   ├── tasks/      # One module per AI step (curate, summarize, wrap_up)
 │   │   ├── config.py   # Loads config/config.yaml (provider, batch default, models)
 │   │   ├── anthropic_client.py  # Anthropic SDK implementation
+│   │   ├── openai_client.py     # OpenAI SDK implementation (Responses API)
 │   │   └── factory.py  # create_client(): picks the provider from config
 │   ├── curator.py      # AI curation: loads sections.yaml, runs the curator task
 │   ├── selector.py     # Priority-based article selection

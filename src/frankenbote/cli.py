@@ -13,7 +13,7 @@ from frankenbote.config import load_sources
 from frankenbote.curator import curate, load_curator_config
 from frankenbote.fetcher import fetch_all
 from frankenbote.filter import filter_articles, load_filter_config
-from frankenbote.llm import LLMClient, create_client, load_llm_config
+from frankenbote.llm import LLMClient, api_key_env, create_client, load_llm_config
 from frankenbote.models import Priority
 from frankenbote.paywall_gate import select_edition
 from frankenbote.publisher import load_publisher_config_from_env, publish
@@ -68,12 +68,17 @@ def hello() -> None:
     """Print a greeting and basic environment info — used to verify setup."""
     env = os.environ.get("FRANKENBOTE_ENV", "unset")
     log_level = os.environ.get("LOG_LEVEL", "unset")
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        provider = load_llm_config().provider
+        has_api_key = bool(os.environ.get(api_key_env(provider)))
+    except ValueError:
+        provider, has_api_key = "unknown (config/config.yaml not loadable)", False
 
     click.echo("Servus! Frankenbote is running.")
     click.echo(f"  Python:           {sys.version.split()[0]}")
     click.echo(f"  Environment:      {env}")
     click.echo(f"  Log level:        {log_level}")
+    click.echo(f"  LLM provider:     {provider}")
     click.echo(f"  API key present:  {'yes' if has_api_key else 'no'}")
 
 

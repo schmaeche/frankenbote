@@ -51,7 +51,7 @@ class TestLLMConfig:
 
     def test_unknown_provider_rejected(self):
         with pytest.raises(Exception):
-            LLMConfig(provider="openai", models={"curator": "c", "summarizer": "s"})
+            LLMConfig(provider="gemini", models={"curator": "c", "summarizer": "s"})
 
     def test_unknown_key_rejected(self):
         with pytest.raises(Exception):
@@ -124,10 +124,18 @@ class TestLoadLLMConfig:
             load_llm_config(path)
         assert "summarizer" in str(ei.value)
 
-    def test_unknown_provider_reported_as_value_error(self, tmp_path):
+    def test_openai_provider_accepted(self, tmp_path):
         path = tmp_path / "config.yaml"
         path.write_text(
             "llm:\n  provider: openai\n  models:\n    curator: a\n    summarizer: b\n",
+            encoding="utf-8",
+        )
+        assert load_llm_config(path).provider == "openai"
+
+    def test_unknown_provider_reported_as_value_error(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "llm:\n  provider: gemini\n  models:\n    curator: a\n    summarizer: b\n",
             encoding="utf-8",
         )
         with pytest.raises(ValueError, match="Invalid 'llm:' block"):

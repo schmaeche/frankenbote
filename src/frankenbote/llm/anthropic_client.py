@@ -62,6 +62,7 @@ def _translate_errors() -> Generator[None]:
 class AnthropicLLMClient(LLMClient):
     """LLMClient backed by the Anthropic Python SDK."""
 
+    API_KEY_ENV = "ANTHROPIC_API_KEY"
     BATCH_POLL_INTERVAL = 30  # seconds between status checks
     BATCH_TIMEOUT = 3_600  # 60-minute hard limit
     PROGRESS_EVERY = 25  # streamed text chunks per progress dot
@@ -90,9 +91,9 @@ class AnthropicLLMClient(LLMClient):
             backoff_seconds=backoff_seconds,
         )
         if sdk_client is None:
-            api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+            api_key = api_key or os.environ.get(self.API_KEY_ENV)
             if not api_key:
-                raise RuntimeError("ANTHROPIC_API_KEY is not set")
+                raise RuntimeError(f"{self.API_KEY_ENV} is not set")
             sdk_client = anthropic.Anthropic(api_key=api_key)
         self._client = sdk_client
         self.batch_poll_interval = (

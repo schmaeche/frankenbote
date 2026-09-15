@@ -18,6 +18,7 @@ dependencies = [
     "pydantic>=2.9.0",          # Config validation
     # AI
     "anthropic>=0.97.0",        # Anthropic API client
+    "openai>=3.14.0",           # OpenAI API client
     # Publishing
     "paramiko>=3.5.0",          # SFTP for upload to webserver
     # CLI

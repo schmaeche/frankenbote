@@ -4,27 +4,37 @@
 # code never names a model itself — the LLM client resolves the model for a
 # step from this file (see src/frankenbote/llm/config.py).
 #
-# The API key is NOT configured here: it comes from ANTHROPIC_API_KEY in the
-# environment / .env file.
+# The API key is NOT configured here: it comes from the environment / .env
+# file — ANTHROPIC_API_KEY for provider "anthropic", OPENAI_API_KEY for
+# provider "openai".
 
 llm:
-  # Provider implementation. Currently only "anthropic" exists.
-  provider: anthropic
+  # Provider implementation: "anthropic" or "openai". One provider per run —
+  # when switching, change every model id below to one of that provider's
+  # models.
+  # provider: anthropic
+  provider: openai
 
-  # Use the Message Batches API (cheaper, asynchronous, polled until done)
-  # instead of synchronous streaming calls. `--batch-off` on the CLI
-  # overrides this for a single run.
+  # Use the provider's batch API (cheaper, asynchronous, polled until done)
+  # instead of synchronous streaming calls. The client stops polling and
+  # cancels the batch after 60 minutes; OpenAI batches may take longer than
+  # that. `--batch-off` on the CLI overrides this for a single run.
   use_batch: true
 
   # One model per AI step. Pinned so behaviour is reproducible.
   models:
     # Curation: classifies every candidate into a section and priority.
-    curator: claude-sonnet-5
+    # curator: claude-sonnet-5
+    curator: gpt-5.6-luna
 
     # Summaries: short German digest per article. Cheaper/faster model.
-    summarizer: claude-haiku-4-5-20251001
+    # summarizer: claude-haiku-4-5-20251001
+    summarizer: gpt-5.6-luna
 
     # Optional: model for the longer, multi-paragraph wrap-ups. Unset =
     # reuse the summarizer model. Override only if wrap-ups need a
     # different model than the short summaries.
     # wrap_up: claude-sonnet-4-6
+
+  # With provider: openai, the models block takes OpenAI model ids instead,
+  # e.g. `summarizer: gpt-5.6-luna`. Reasoning effort is fixed to "none".

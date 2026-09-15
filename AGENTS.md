@@ -44,8 +44,8 @@ pyright                        # type-check src/ (see below for why not tests/)
 `publisher.py`, `cli.py`, `__main__.py`, and `generate_wrap_ups()` are
 excluded from coverage — they require a live SFTP server or fetch article
 bodies over the network. `curate()` and `summarize_edition()` are tested
-by injecting a scripted `LLMClient`; the Anthropic client is tested with a
-mocked SDK.
+by injecting a scripted `LLMClient`; the Anthropic and OpenAI clients are
+tested with mocked SDKs.
 
 **Ruff** is configured in `pyproject.toml` (`[tool.ruff.lint]`) and shipped
 in the `dev` extra. The selection is ruff's defaults (`E4`/`E7`/`E9`/`F`)
@@ -207,11 +207,24 @@ they prepare inputs, make one call, and apply the results.
 - `llm/anthropic_client.py` — the only module importing the Anthropic SDK.
   Implements the primitives, maps task → model when building the API
   request, translates SDK exceptions into the hierarchy above.
+- `llm/openai_client.py` — the same for the OpenAI SDK, against the
+  Responses API (sync: raw event stream; batch: JSONL upload to
+  `/v1/responses`, output + error files). Two things are fixed in code, not
+  config: the tool is sent with `strict: true`, and `reasoning.effort` is
+  `"none"` — `max_output_tokens` counts reasoning tokens and the tasks'
+  `max_tokens_for()` budgets have no room for them. Strict mode requires
+  every property to be `required` and no `default`s, so a response model
+  with an optional field breaks OpenAI; `tests/test_llm_openai.py` checks
+  every task's derived schema. Responses are translated onto the existing
+  `stop_reason` labels (`max_output_tokens` → `"max_tokens"`, refusal →
+  `"refusal"`), so the retry loop needs no provider knowledge.
 - `llm/factory.py` — `create_client(config, use_batch=...)`, the only place
-  a provider is chosen. `cli.py` builds one client per command and passes
-  it down; every LLM-calling function takes `client: LLMClient` as a
-  required argument. To add a provider (#44): subclass `LLMClient`, add it
-  to the factory and to the `provider` literal in `llm/config.py`.
+  a provider is chosen, plus `api_key_env(provider)` (used by `frankenbote
+  hello`). One provider per run. `cli.py` builds one client per command and
+  passes it down; every LLM-calling function takes `client: LLMClient` as a
+  required argument. To add a provider: subclass `LLMClient` (with an
+  `API_KEY_ENV` constant), add it to `_CLIENTS` in the factory and to the
+  `provider` literal in `llm/config.py`.
 
 What is left in `curator.py` and `summarizer.py` is I/O and domain
 mapping: loading `sections.yaml`, flattening the edition, fetching article

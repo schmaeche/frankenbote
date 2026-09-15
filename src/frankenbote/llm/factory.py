@@ -5,6 +5,13 @@ from __future__ import annotations
 from frankenbote.llm.anthropic_client import AnthropicLLMClient
 from frankenbote.llm.base import LLMClient
 from frankenbote.llm.config import LLMConfig
+from frankenbote.llm.openai_client import OpenAILLMClient
+
+# config.yaml `llm.provider` → client implementation.
+_CLIENTS: dict[str, type[AnthropicLLMClient | OpenAILLMClient]] = {
+    "anthropic": AnthropicLLMClient,
+    "openai": OpenAILLMClient,
+}
 
 
 def create_client(
@@ -20,6 +27,17 @@ def create_client(
     read from the environment unless api_key is given.
     """
     effective_batch = config.use_batch if use_batch is None else use_batch
-    if config.provider == "anthropic":
-        return AnthropicLLMClient(config.models, use_batch=effective_batch, api_key=api_key)
-    raise ValueError(f"Unsupported LLM provider {config.provider!r}")
+    client_class = _client_class(config.provider)
+    return client_class(config.models, use_batch=effective_batch, api_key=api_key)
+
+
+def api_key_env(provider: str) -> str:
+    """Name of the environment variable holding the provider's API key."""
+    return _client_class(provider).API_KEY_ENV
+
+
+def _client_class(provider: str) -> type[AnthropicLLMClient | OpenAILLMClient]:
+    try:
+        return _CLIENTS[provider]
+    except KeyError:
+        raise ValueError(f"Unsupported LLM provider {provider!r}") from None

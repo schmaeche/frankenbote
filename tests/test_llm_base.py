@@ -189,7 +189,7 @@ class TestCallToolWithRetrySync:
     def test_refusal_message(self, no_debug):
         bad = tool_result("req", None, "refusal")
         c = ScriptedLLMClient([bad, bad])
-        with pytest.raises(RuntimeError, match="Claude refused on safety grounds"):
+        with pytest.raises(RuntimeError, match="model refused on safety grounds"):
             c.call_tool_with_retry(_request(), _parse, component="summarizer", use_batch=False)
         assert no_debug[0][0] == "summarizer"
 

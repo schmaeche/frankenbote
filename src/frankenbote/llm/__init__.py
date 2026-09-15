@@ -27,7 +27,8 @@ from frankenbote.llm.base import (
     ToolCallResult,
 )
 from frankenbote.llm.config import TASK_NAMES, LLMConfig, ModelConfig, load_llm_config
-from frankenbote.llm.factory import create_client
+from frankenbote.llm.factory import api_key_env, create_client
+from frankenbote.llm.openai_client import OpenAILLMClient
 from frankenbote.llm.task import (
     ItemNote,
     PerItemTask,
@@ -47,6 +48,7 @@ __all__ = [
     "LLMError",
     "LLMTransientError",
     "ModelConfig",
+    "OpenAILLMClient",
     "PerItemTask",
     "SingleCallTask",
     "TASK_NAMES",
@@ -55,6 +57,7 @@ __all__ = [
     "ToolCallParams",
     "ToolCallRequest",
     "ToolCallResult",
+    "api_key_env",
     "create_client",
     "load_llm_config",
     "normalize_array_field",
