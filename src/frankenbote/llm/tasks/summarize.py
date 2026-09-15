@@ -118,7 +118,7 @@ Rufe das Tool 'submit_summaries' auf. {len(inputs)} Einträge erwartet."""
 
     def interpret(
         self, response: SummarizerResponse, inputs: Sequence[CuratedArticle]
-    ) -> TaskOutcome["str | None"]:
+    ) -> TaskOutcome[str | None]:
         """One summary per input article, matched by article_index.
 
         An article the model skipped is indistinguishable from one it

@@ -106,10 +106,10 @@ Call the 'submit_wrap_up' tool."""
 
     # ---- how its answer is read ----
 
-    def read(self, response: WrapUpResponse) -> "str | None":
+    def read(self, response: WrapUpResponse) -> str | None:
         return response.wrap_up
 
-    def missing(self) -> "str | None":
+    def missing(self) -> str | None:
         """No wrap-up for this article — the edition simply omits it."""
         return None
 
