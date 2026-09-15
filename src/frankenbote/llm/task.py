@@ -29,16 +29,18 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import click
 from pydantic import BaseModel, ValidationError
 
 from frankenbote.llm.types import ToolCallResult
 
-TIn = TypeVar("TIn")  # one task input (an Article, a CuratedArticle, …)
-TOut = TypeVar("TOut")  # one output per input
-TResp = TypeVar("TResp", bound=BaseModel)  # the validated tool input
+# Type parameters, declared per class (PEP 695):
+#   TIn   — one task input (an Article, a CuratedArticle, …)
+#   TOut  — one output per input
+#   TResp — the validated tool input; bound to BaseModel so `response_model`
+#           is known to be a Pydantic model without a cast
 
 
 # -------- Results --------
@@ -58,7 +60,7 @@ class ItemNote:
 
 
 @dataclass(frozen=True)
-class TaskOutcome(Generic[TOut]):
+class TaskOutcome[TOut]:
     """A task's results, aligned one-to-one with the inputs it was given.
 
     `values` always has exactly as many entries as there were inputs — a
@@ -74,7 +76,7 @@ class TaskOutcome(Generic[TOut]):
 # -------- The task contract --------
 
 
-class Task(ABC, Generic[TIn, TOut, TResp]):
+class Task[TIn, TOut, TResp: BaseModel](ABC):
     """Provider-neutral definition of one AI step.
 
     Subclasses set the six attributes below (as class attributes, or in
@@ -121,7 +123,7 @@ class Task(ABC, Generic[TIn, TOut, TResp]):
         return self.response_model.model_validate(self.normalize(tool_input))
 
 
-class SingleCallTask(Task[TIn, TOut, TResp]):
+class SingleCallTask[TIn, TOut, TResp: BaseModel](Task[TIn, TOut, TResp]):
     """One API call for a list of inputs; the model addresses them by index."""
 
     @abstractmethod
@@ -135,7 +137,7 @@ class SingleCallTask(Task[TIn, TOut, TResp]):
         """Turn the validated response into one output per input, in order."""
 
 
-class PerItemTask(Task[TIn, TOut, TResp]):
+class PerItemTask[TIn, TOut, TResp: BaseModel](Task[TIn, TOut, TResp]):
     """One API call per input, addressed by custom id when batched.
 
     Subclasses render and read a single item; the addressing scheme and
@@ -265,7 +267,7 @@ def normalize_array_field(tool_input: dict, key: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"{key} was a string but not valid JSON: {e}") from e
     if not isinstance(parsed, list):
-        raise ValueError(
+        raise ValueError(  # noqa: TRY004 keep same error type as above for consistency, no caller passed type checking
             f"{key} was a string but its JSON content is {type(parsed).__name__}"
         )
     return {**tool_input, key: parsed}
