@@ -1,6 +1,6 @@
 """Tests for frankenbote.filter — the pure filtering pipeline."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 

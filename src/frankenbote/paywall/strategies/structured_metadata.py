@@ -2,7 +2,8 @@
 
 import json
 from html.parser import HTMLParser
-from typing import Any, Iterator
+from typing import Any
+from collections.abc import Iterator
 
 from frankenbote.paywall.base import PaywallResult, PaywallStrategy
 

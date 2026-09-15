@@ -1,6 +1,6 @@
 """Tests for frankenbote.storage — round-trip JSON with tmp_path."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,7 +9,7 @@ from frankenbote.models import Edition, EditionSection, EditionStats
 from tests.conftest import FIXED_NOW, make_article, make_curated
 
 
-EDITION_DATE = datetime(2026, 5, 3, 12, 0, 0, tzinfo=timezone.utc)
+EDITION_DATE = datetime(2026, 5, 3, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_edition() -> Edition:

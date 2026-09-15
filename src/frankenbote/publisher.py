@@ -79,12 +79,17 @@ def load_publisher_config_from_env() -> PublisherConfig:
             f"Missing required environment variables: {', '.join(missing)}"
         )
 
+    # Past the check above every value is a non-empty string; rebinding says
+    # so to the reader and to the type checker, which cannot follow the
+    # emptiness test through the dict.
+    env = {key: value for key, value in required.items() if value}
+
     return PublisherConfig(
-        host=required["SFTP_HOST"],
-        username=required["SFTP_USERNAME"],
-        private_key_path=Path(required["SFTP_PRIVATE_KEY_PATH"]).expanduser(),
+        host=env["SFTP_HOST"],
+        username=env["SFTP_USERNAME"],
+        private_key_path=Path(env["SFTP_PRIVATE_KEY_PATH"]).expanduser(),
         private_key_passphrase=os.environ.get("SFTP_PRIVATE_KEY_PASSPHRASE") or None,
-        remote_dir=required["SFTP_REMOTE_ROOT"],
+        remote_dir=env["SFTP_REMOTE_ROOT"],
         port=int(os.environ.get("SFTP_PORT", "22")),
     )
 
@@ -195,7 +200,12 @@ def _ensure_remote_dir(sftp: paramiko.SFTPClient, path: str) -> None:
     """
     try:
         attr = sftp.stat(path)
-        if not stat.S_ISDIR(attr.st_mode):
+        # st_mode is Optional on paramiko's SFTPAttributes — a server may omit
+        # it. Only refuse when we positively know the path is not a directory;
+        # an unknown mode falls through to the upload, which fails clearly
+        # enough on its own. Passing None to S_ISDIR would raise TypeError,
+        # which the FileNotFoundError handler below would not catch.
+        if attr.st_mode is not None and not stat.S_ISDIR(attr.st_mode):
             raise RuntimeError(f"Remote path {path} exists but is not a directory")
     except FileNotFoundError:
         sftp.mkdir(path)

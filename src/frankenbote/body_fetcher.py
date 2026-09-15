@@ -9,6 +9,7 @@ text — not just the short feed snippet — to write a longer digest.
 """
 
 import asyncio
+from typing import TypedDict
 
 import httpx
 import trafilatura
@@ -21,9 +22,22 @@ MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MB — a sane upper bound
 # an error page, or a cookie wall — and reported as a failed fetch.
 MIN_BODY_CHARS = 400
 
+class ExtractSettings(TypedDict):
+    """The trafilatura keywords we pass, typed so `**EXTRACT_SETTINGS` resolves.
+
+    A plain dict would collapse to dict[str, bool] and every `**` unpack
+    would look like a bool handed to `url`, `output_format` and friends.
+    """
+
+    include_comments: bool
+    include_tables: bool
+    deduplicate: bool
+    favor_recall: bool
+
+
 # Shared with the paywall content-length strategy, which predicts whether
 # this module would yield a usable body and must measure the same extraction.
-EXTRACT_SETTINGS = {
+EXTRACT_SETTINGS: ExtractSettings = {
     "include_comments": False,
     "include_tables": False,
     "deduplicate": True,

@@ -1,8 +1,6 @@
 """Shared fixture factories for the frankenbote test suite."""
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from frankenbote.curator import CuratorConfig
 from frankenbote.models import (
@@ -14,10 +12,10 @@ from frankenbote.models import (
 )
 
 # A fixed "now" used across tests — a Wednesday, well inside any rolling window.
-FIXED_NOW = datetime(2026, 5, 6, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 5, 6, 12, 0, 0, tzinfo=UTC)
 
 # A timestamp inside a typical previous-Saturday window (published on Monday).
-IN_WINDOW_DATE = datetime(2026, 5, 4, 10, 0, 0, tzinfo=timezone.utc)
+IN_WINDOW_DATE = datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
 
 
 def make_article(**overrides) -> Article:

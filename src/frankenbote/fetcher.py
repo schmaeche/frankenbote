@@ -8,7 +8,7 @@ pipeline stage.
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from time import mktime
 from urllib.parse import urlsplit
@@ -155,7 +155,7 @@ def _parse(source: Source, raw_bytes: bytes) -> list[Article]:
         reason = getattr(parsed, "bozo_exception", "unknown parse error")
         raise ValueError(f"feed parse failed: {reason}")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     articles: list[Article] = []
 
     for entry in parsed.entries[: source.max_articles]:
@@ -169,7 +169,7 @@ def _parse(source: Source, raw_bytes: bytes) -> list[Article]:
         for key in ("published_parsed", "updated_parsed"):
             time_struct = entry.get(key)
             if time_struct:
-                published = datetime.fromtimestamp(mktime(time_struct), tz=timezone.utc)
+                published = datetime.fromtimestamp(mktime(time_struct), tz=UTC)
                 break
 
         summary_html = (entry.get("summary") or "").strip()

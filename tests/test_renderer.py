@@ -1,9 +1,6 @@
 """Tests for frankenbote.renderer — HTML output with tmp Jinja2 templates."""
 
-from datetime import datetime, timezone
 from pathlib import Path
-
-import pytest
 
 from frankenbote.renderer import (
     RenderConfig,

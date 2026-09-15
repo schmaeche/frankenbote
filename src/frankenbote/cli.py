@@ -103,7 +103,7 @@ def fetch(config: Path) -> None:
     click.echo("─" * 70)
 
     for r in sorted(results, key=lambda x: x.source.name):
-        status = f"✓" if r.ok else f"✗ {r.error}"
+        status = "✓" if r.ok else f"✗ {r.error}"
         click.echo(f"{r.source.name[:40]:40s} {len(r.articles):>8d}  {status}")
 
     click.echo("─" * 70)
@@ -470,7 +470,7 @@ def render_cmd() -> None:
     if stats["editions_pruned"]:
         click.echo(f"Pruned {stats['editions_pruned']} old HTML file(s).")
     click.echo(f"Copied {stats['assets_copied']} asset file(s).")
-    click.echo(f"\nOpen output/index.html in a browser to view.")
+    click.echo("\nOpen output/index.html in a browser to view.")
 
 
 @main.command(name="summarize")

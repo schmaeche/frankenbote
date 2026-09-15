@@ -34,6 +34,11 @@ pytest --cov=frankenbote --cov-report=term-missing -q   # with coverage (fail_un
 
 # Or via the dedicated test container (no local Python/venv needed)
 docker compose run --rm test
+
+# Lint and type-check (both configured in pyproject.toml, both in [dev])
+ruff check .                   # lint
+ruff check . --fix             # apply the safe fixes
+pyright                        # type-check src/ (see below for why not tests/)
 ```
 
 `publisher.py`, `cli.py`, `__main__.py`, and `generate_wrap_ups()` are
@@ -42,22 +47,55 @@ bodies over the network. `curate()` and `summarize_edition()` are tested
 by injecting a scripted `LLMClient`; the Anthropic client is tested with a
 mocked SDK.
 
-There is no linter/formatter configured in `pyproject.toml` — don't assume
-`ruff`/`black`/`mypy` are wired in without checking first. Editors may still
-surface ruff findings via IDE integration even though it isn't part of the
-project's own toolchain. When you touch a file for a task, it's fine to fix
-ruff issues in that file as part of the change; don't do a repo-wide ruff
-cleanup unless asked.
+**Ruff** is configured in `pyproject.toml` (`[tool.ruff.lint]`) and shipped
+in the `dev` extra. The selection is ruff's defaults (`E4`/`E7`/`E9`/`F`)
+plus `UP` (pyupgrade) and `TRY` (exception handling). No formatter is
+configured — `ruff format` and `black` are *not* wired in, so don't
+reformat files.
 
-The same applies to **Pylance** (VS Code's Pyright-based type checker):
-there is no `pyrightconfig.json` or `[tool.pyright]` section, so its
-findings come from the editor's defaults, not the project. Treat them like
-ruff findings — resolve them in files you touch, don't sweep the repo. Two
-things to know when writing type hints here: the project requires Python
-3.14, so the short generic forms are fine (`Generator[None]` instead of
-`Generator[None, None, None]`); and a function decorated with
-`@contextmanager` must be annotated `-> Generator[T]`, not `-> Iterator[T]`
-— Pylance flags the latter as deprecated (see `llm/anthropic_client.py`).
+`TRY003` is deliberately ignored: config loaders raise `ValueError` with a
+message meant to be shown to the CLI user verbatim (see "Config" below),
+and TRY003 flags every one of them. That convention is the design, not an
+oversight. Pin rule changes in `pyproject.toml` rather than in editor
+settings, so a local run and an editor squiggle report the same thing.
+
+`ruff check .` is clean except for four findings left standing on purpose:
+
+- `UP042` on `Category` and `Priority` (`str, Enum` → `enum.StrEnum`) —
+  changes `str()` output and can alter pydantic serialization, so it is not
+  a mechanical fix. Leave it unless you are ready to check the rendered
+  edition and the stored JSON.
+- `TRY300` in `paywall_gate.py` and `E741` (`l`) in `tests/test_fetcher.py`
+  — cosmetic; fix them if you are editing those lines anyway.
+
+**Pyright** (the engine behind VS Code's Pylance) is configured too, at
+`typeCheckingMode = "standard"` to match Pylance's editor default, but
+scoped to `include = ["src"]` and expected to stay at **zero errors** —
+if `pyright` reports something, you introduced it.
+
+`tests/` is deliberately excluded: the suite builds pydantic models from
+literals (`"local"` for a `Category`, a `str` for `HttpUrl`, a dict for
+`Window`). Pydantic coerces those at runtime, but pyright types `__init__`
+from the field annotations and reported ~190 false positives. Don't
+"fix" the tests to satisfy it, and don't widen `include` without reading
+that pile first.
+
+Two things to know when writing type hints here: the project requires
+Python 3.14, so the short generic forms are fine (`Generator[None]` instead
+of `Generator[None, None, None]`) and PEP 695 syntax is preferred
+(`class Task[TIn, TOut, TResp: BaseModel](ABC)` — keep the bound, or you
+lose type information and end up reaching for `cast`); and a function
+decorated with `@contextmanager` must be annotated `-> Generator[T]`, not
+`-> Iterator[T]` — Pylance flags the latter as deprecated (see
+`llm/anthropic_client.py`).
+
+Two suppressions exist and should not be removed casually: the
+`# noqa: TRY004` in `llm/task.py` (the malformed-tool-input guard raises
+`ValueError` to match its sibling branch, not `TypeError` — it validates
+untrusted model output, not a caller's argument type) and the
+`ExtractSettings` TypedDict in `body_fetcher.py` (a plain dict collapses to
+`dict[str, bool]` and every `**EXTRACT_SETTINGS` unpack looks like a bool
+handed to `url`).
 
 ## Architecture
 

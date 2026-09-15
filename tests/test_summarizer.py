@@ -5,7 +5,7 @@ Prompt rendering and the reading of the model's answers belong to the
 summarizer and wrap-up tasks (test_task_summarize.py, test_task_wrap_up.py).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -106,7 +106,7 @@ class TestWrapUpInputs:
 # ── summarize_edition() ──────────────────────────────────────────────────────
 
 def _make_edition(*section_articles: list) -> Edition:
-    now = datetime(2026, 5, 6, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 6, tzinfo=UTC)
     sections = [
         EditionSection(id=f"sec{i}", display_name=f"Section {i}", articles=arts)
         for i, arts in enumerate(section_articles)
