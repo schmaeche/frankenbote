@@ -10,14 +10,18 @@ The only module in the pipeline that imports the OpenAI SDK. It owns:
   - translation of Responses API output into ToolCallResult and of SDK
     exceptions into the provider-neutral LLMError hierarchy.
 
-Two OpenAI specifics are fixed here rather than configured:
+Two OpenAI specifics are handled here rather than in config.yaml:
 
   - the tool is sent with `strict: true`, so the arguments are guaranteed
     to match the schema. The schemas derived from the response models
     satisfy strict mode (every property required, additionalProperties
     false) — `tests/test_llm_openai.py` checks every task;
-  - reasoning effort is always "none". `max_output_tokens` counts
-    reasoning tokens, and the task budgets are sized for the answer alone.
+  - reasoning effort is set per task by the `reasoning_effort` mapping
+    (built in `llm/factory.py`); a task not in it gets "none". Levels are
+    not validated — the API rejects one the model doesn't support.
+    `max_output_tokens` counts reasoning tokens and the task budgets are
+    sized for the answer alone, so each level adds a fixed headroom from
+    `REASONING_HEADROOM` ("none" and unlisted levels add 0).
 
 Model selection and retry behaviour are inherited unchanged from LLMClient.
 """
@@ -28,7 +32,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Generator, Iterable, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -59,6 +63,17 @@ _TRANSIENT_ERRORS = (
 # Stream events that carry the finished response.
 _FINAL_EVENTS = ("response.completed", "response.incomplete", "response.failed")
 
+# Reasoning effort level → output tokens added on top of the task's
+# max_tokens_for() budget, since max_output_tokens counts reasoning tokens.
+# Levels not listed here (including "none") add nothing.
+REASONING_HEADROOM: dict[str, int] = {
+    "low": 1_000,
+    "medium": 4_000,
+    "high": 8_000,
+    "xhigh": 16_000,
+    "max": 25_000,
+}
+
 # Batch statuses after which the batch no longer changes.
 _BATCH_DONE = ("completed", "expired", "cancelled")
 
@@ -86,7 +101,6 @@ class OpenAILLMClient(LLMClient):
     BATCH_POLL_INTERVAL = 30  # seconds between status checks
     BATCH_TIMEOUT = 3_600  # 60-minute hard limit
     PROGRESS_EVERY = 25  # streamed argument deltas per progress dot
-    REASONING_EFFORT = "none"
 
     def __init__(
         self,
@@ -99,6 +113,7 @@ class OpenAILLMClient(LLMClient):
         batch_poll_interval: float | None = None,
         batch_timeout: float | None = None,
         sdk_client: Any = None,
+        reasoning_effort: Mapping[str, str] = {},
     ):
         """Create the client.
 
@@ -110,6 +125,7 @@ class OpenAILLMClient(LLMClient):
             use_batch=use_batch,
             max_attempts=max_attempts,
             backoff_seconds=backoff_seconds,
+            reasoning_effort=reasoning_effort,
         )
         if sdk_client is None:
             api_key = api_key or os.environ.get(self.API_KEY_ENV)
@@ -218,13 +234,16 @@ class OpenAILLMClient(LLMClient):
     def _response_kwargs(self, request: ToolCallRequest) -> dict[str, Any]:
         """Responses-API parameters for a request; shared by sync and batch.
 
-        This is where the task name becomes a concrete model id.
+        This is where the task name becomes a concrete model id and
+        reasoning effort, with the effort's headroom added to the budget.
         """
         params = request["params"]
         tool = params["tool"]
+        task = request["task"]
+        effort = self.reasoning_effort.get(task, "none")
         return {
-            "model": self.resolve_model(request["task"]),
-            "max_output_tokens": params["max_tokens"],
+            "model": self.resolve_model(task),
+            "max_output_tokens": params["max_tokens"] + REASONING_HEADROOM.get(effort, 0),
             "instructions": params["system"],
             "input": [{"role": "user", "content": params["user_prompt"]}],
             "tools": [
@@ -237,7 +256,7 @@ class OpenAILLMClient(LLMClient):
                 }
             ],
             "tool_choice": {"type": "function", "name": tool["name"]},
-            "reasoning": {"effort": self.REASONING_EFFORT},
+            "reasoning": {"effort": effort},
         }
 
     def _to_batch_line(self, request: ToolCallRequest) -> dict[str, Any]:

@@ -25,7 +25,7 @@ llm:
   models:
     # Curation: classifies every candidate into a section and priority.
     # curator: claude-sonnet-5
-    curator: gpt-5.6-luna
+    curator: gpt-5.6-terra
 
     # Summaries: short German digest per article. Cheaper/faster model.
     # summarizer: claude-haiku-4-5-20251001
@@ -37,4 +37,6 @@ llm:
     # wrap_up: claude-sonnet-4-6
 
   # With provider: openai, the models block takes OpenAI model ids instead,
-  # e.g. `summarizer: gpt-5.6-luna`. Reasoning effort is fixed to "none".
+  # e.g. `summarizer: gpt-5.6-luna`. Reasoning effort is set per step in
+  # code (src/frankenbote/llm/factory.py), not here; the Anthropic client
+  # ignores it.

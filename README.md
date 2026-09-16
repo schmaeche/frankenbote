@@ -71,7 +71,7 @@ The YAML files in `config/` control what gets fetched and how articles are categ
 - `config/sections.yaml` — section definitions, priority tiers, editorial guidance, and selector targets
 - `config/config.yaml` — LLM settings: provider (`anthropic` or `openai`), whether to use the provider's batch API by default, and the model for each AI step (`curator`, `summarizer`, and an optional `wrap_up` that falls back to the summarizer model)
 
-With `provider: openai`, calls go through the Responses API: the tool is sent in strict mode and reasoning effort is fixed to `none`, because `max_output_tokens` counts reasoning tokens and the per-step budgets have no room for them. OpenAI batches have a 24-hour completion window, but the client stops polling and cancels after 60 minutes, as it does for Anthropic. If batches regularly take longer, run with `--batch-off`.
+With `provider: openai`, calls go through the Responses API: the tool is sent in strict mode and reasoning effort is set per step in code (`_REASONING_EFFORT` in `src/frankenbote/llm/factory.py`; a step not listed there runs with `none`). Because `max_output_tokens` counts reasoning tokens and the per-step budgets have no room for them, each effort level adds a fixed token headroom (`REASONING_HEADROOM` in `src/frankenbote/llm/openai_client.py`). OpenAI batches have a 24-hour completion window, but the client stops polling and cancels after 60 minutes, as it does for Anthropic. If batches regularly take longer, run with `--batch-off`.
 
 ---
 

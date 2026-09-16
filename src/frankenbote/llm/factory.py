@@ -13,6 +13,15 @@ _CLIENTS: dict[str, type[AnthropicLLMClient | OpenAILLMClient]] = {
     "openai": OpenAILLMClient,
 }
 
+# Task name → reasoning effort, passed to every client. Providers that
+# don't support it ignore it; a task not listed here gets "none". Tune after
+# real runs — see REASONING_HEADROOM in openai_client.py for the token
+# headroom each level adds.
+_REASONING_EFFORT: dict[str, str] = {
+    "curator": "medium",
+    "wrap_up": "low",
+}
+
 
 def create_client(
     config: LLMConfig,
@@ -28,7 +37,12 @@ def create_client(
     """
     effective_batch = config.use_batch if use_batch is None else use_batch
     client_class = _client_class(config.provider)
-    return client_class(config.models, use_batch=effective_batch, api_key=api_key)
+    return client_class(
+        config.models,
+        use_batch=effective_batch,
+        api_key=api_key,
+        reasoning_effort=_REASONING_EFFORT,
+    )
 
 
 def api_key_env(provider: str) -> str:

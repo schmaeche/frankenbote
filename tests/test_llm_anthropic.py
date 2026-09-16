@@ -268,6 +268,29 @@ class TestSubmitBatch:
             client.submit_batch([_request()])
 
 
+# ── reasoning effort (accepted, ignored) ─────────────────────────────────────
+
+class TestReasoningEffortIgnored:
+    _EFFORT = {"curator": "high", "summarizer": "medium", "wrap_up": "low"}
+
+    def test_sync_request_unchanged(self, sdk):
+        kwargs = []
+        for effort in ({}, self._EFFORT):
+            client = AnthropicLLMClient(_MODELS, sdk_client=sdk, reasoning_effort=effort)
+            _install_stream(sdk, _message([_tool_block({})]))
+            client.call_tool(_request(task="curator"))
+            kwargs.append(sdk.messages.stream.call_args.kwargs)
+        assert kwargs[0] == kwargs[1]
+
+    def test_batch_requests_unchanged(self, sdk):
+        requests = []
+        for effort in ({}, self._EFFORT):
+            client = AnthropicLLMClient(_MODELS, sdk_client=sdk, reasoning_effort=effort)
+            client.submit_batch([_request("a", task="curator"), _request("b", task="wrap_up")])
+            requests.append(sdk.messages.batches.create.call_args.kwargs["requests"])
+        assert requests[0] == requests[1]
+
+
 # ── wait_for_batch ───────────────────────────────────────────────────────────
 
 class TestWaitForBatch:

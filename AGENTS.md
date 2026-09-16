@@ -209,10 +209,15 @@ they prepare inputs, make one call, and apply the results.
   request, translates SDK exceptions into the hierarchy above.
 - `llm/openai_client.py` — the same for the OpenAI SDK, against the
   Responses API (sync: raw event stream; batch: JSONL upload to
-  `/v1/responses`, output + error files). Two things are fixed in code, not
+  `/v1/responses`, output + error files). Two things live in code, not
   config: the tool is sent with `strict: true`, and `reasoning.effort` is
-  `"none"` — `max_output_tokens` counts reasoning tokens and the tasks'
-  `max_tokens_for()` budgets have no room for them. Strict mode requires
+  set per task from the `_REASONING_EFFORT` mapping in `llm/factory.py`
+  (passed to every client as `reasoning_effort`; the Anthropic client
+  ignores it; an unlisted task gets `"none"`; levels are not validated).
+  `max_output_tokens` counts reasoning tokens and the tasks'
+  `max_tokens_for()` budgets have no room for them, so the client adds
+  the level's headroom from `REASONING_HEADROOM` (`"none"` and unknown
+  levels add 0). Strict mode requires
   every property to be `required` and no `default`s, so a response model
   with an optional field breaks OpenAI; `tests/test_llm_openai.py` checks
   every task's derived schema. Responses are translated onto the existing

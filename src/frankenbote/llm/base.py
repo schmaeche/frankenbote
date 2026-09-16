@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 import click
@@ -108,7 +108,13 @@ class LLMClient(ABC):
         use_batch: bool = True,
         max_attempts: int = 2,
         backoff_seconds: float = 0.0,
+        reasoning_effort: Mapping[str, str] = {},
     ):
+        """reasoning_effort maps task names to a reasoning effort level.
+
+        What a level means — and whether it is used at all — is up to the
+        provider client; values are passed through unvalidated.
+        """
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
         if backoff_seconds < 0:
@@ -117,6 +123,7 @@ class LLMClient(ABC):
         self.use_batch = use_batch
         self.max_attempts = max_attempts
         self.backoff_seconds = backoff_seconds
+        self.reasoning_effort = dict(reasoning_effort)
 
     # ---- model selection ----
 

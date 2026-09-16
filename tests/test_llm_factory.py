@@ -13,6 +13,7 @@ from frankenbote.llm import (
     create_client,
 )
 from frankenbote.llm import anthropic_client as ac_module
+from frankenbote.llm import factory as factory_module
 from frankenbote.llm import openai_client as oc_module
 
 
@@ -86,6 +87,15 @@ class TestCreateClient:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
             create_client(LLMConfig(provider="openai", models=_MODELS))
+
+    @pytest.mark.parametrize("provider", ["anthropic", "openai"])
+    def test_reasoning_effort_mapping_passed_to_client(
+        self, fake_sdk, fake_openai_sdk, monkeypatch, provider
+    ):
+        effort = {"summarizer": "high"}
+        monkeypatch.setattr(factory_module, "_REASONING_EFFORT", effort)
+        client = create_client(LLMConfig(provider=provider, models=_MODELS))
+        assert client.reasoning_effort == effort
 
     def test_unsupported_provider_raises(self):
         # Pydantic rejects unknown providers at validation time; bypass it to

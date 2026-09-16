@@ -18,7 +18,11 @@ from frankenbote.llm import (
     ToolCallRequest,
 )
 from frankenbote.llm import openai_client as oc_module
-from frankenbote.llm.openai_client import parse_batch_results, result_from_response
+from frankenbote.llm.openai_client import (
+    REASONING_HEADROOM,
+    parse_batch_results,
+    result_from_response,
+)
 from frankenbote.llm.tasks import SUMMARIZER_TASK, WRAP_UP_TASK, curator_task
 from tests.conftest import make_curator_config
 
@@ -359,6 +363,57 @@ class TestSubmitBatch:
         sdk.files.create.side_effect = _connection_error()
         with pytest.raises(LLMTransientError):
             client.submit_batch([_request()])
+
+
+# ── reasoning effort (sync and batch) ────────────────────────────────────────
+
+def _sent_body(client: OpenAILLMClient, sdk, path: str, task: str) -> dict:
+    """The Responses-API parameters one request goes out with on `path`."""
+    if path == "sync":
+        _install_stream(sdk, _body([_call({})]))
+        client.call_tool(_request(task=task))
+        return sdk.responses.create.call_args.kwargs
+    client.submit_batch([_request(task=task)])
+    _, content = sdk.files.create.call_args.kwargs["file"]
+    return json.loads(content.decode("utf-8"))["body"]
+
+
+@pytest.mark.parametrize("path", ["sync", "batch"])
+class TestReasoningEffort:
+    def _client(self, sdk, effort: dict[str, str]) -> OpenAILLMClient:
+        return OpenAILLMClient(_MODELS, sdk_client=sdk, reasoning_effort=effort)
+
+    def test_effort_taken_from_mapping_per_task(self, sdk, path):
+        client = self._client(sdk, {"curator": "high", "summarizer": "low"})
+        assert _sent_body(client, sdk, path, "summarizer")["reasoning"] == {"effort": "low"}
+
+    def test_unlisted_task_gets_none_without_headroom(self, sdk, path):
+        client = self._client(sdk, {"curator": "high"})
+        body = _sent_body(client, sdk, path, "wrap_up")
+        assert body["reasoning"] == {"effort": "none"}
+        assert body["max_output_tokens"] == 123
+
+    @pytest.mark.parametrize(("level", "headroom"), REASONING_HEADROOM.items())
+    def test_known_level_adds_headroom(self, sdk, path, level, headroom):
+        client = self._client(sdk, {"curator": level})
+        body = _sent_body(client, sdk, path, "curator")
+        assert body["reasoning"] == {"effort": level}
+        assert body["max_output_tokens"] == 123 + headroom
+
+    @pytest.mark.parametrize("level", ["none", "ultra"])
+    def test_none_and_unknown_level_add_no_headroom(self, sdk, path, level):
+        client = self._client(sdk, {"curator": level})
+        body = _sent_body(client, sdk, path, "curator")
+        assert body["reasoning"] == {"effort": level}
+        assert body["max_output_tokens"] == 123
+
+
+def test_reasoning_effort_mapping_is_copied():
+    effort = {"curator": "medium"}
+    client = OpenAILLMClient(_MODELS, sdk_client=MagicMock(), reasoning_effort=effort)
+    effort["curator"] = "high"
+    assert client.reasoning_effort == {"curator": "medium"}
+    assert OpenAILLMClient(_MODELS, sdk_client=MagicMock()).reasoning_effort == {}
 
 
 # ── wait_for_batch ───────────────────────────────────────────────────────────

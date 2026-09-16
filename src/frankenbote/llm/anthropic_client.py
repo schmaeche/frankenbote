@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Generator, Iterable, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -78,17 +78,21 @@ class AnthropicLLMClient(LLMClient):
         batch_poll_interval: float | None = None,
         batch_timeout: float | None = None,
         sdk_client: Any = None,
+        reasoning_effort: Mapping[str, str] = {},
     ):
         """Create the client.
 
         sdk_client lets tests inject a stand-in for anthropic.Anthropic; when
         given, no API key is required.
+        reasoning_effort is accepted for interface parity and ignored:
+        requests carry no thinking/reasoning parameters.
         """
         super().__init__(
             models,
             use_batch=use_batch,
             max_attempts=max_attempts,
             backoff_seconds=backoff_seconds,
+            reasoning_effort=reasoning_effort,
         )
         if sdk_client is None:
             api_key = api_key or os.environ.get(self.API_KEY_ENV)
