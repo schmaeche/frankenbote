@@ -3,6 +3,41 @@
 Changes to frankenbote.
 
 ---
+## [unreleased]
+
+### Changed
+
+- Quiet pyright in the editor for tests/ - ([4aa6082](http://192.168.2.134:3000/intipunku/frankenbote/commit/4aa6082870dceda82da28544f665ac4d8eff8c66)) - kura_andi
+- Wire ruff and pyright into the project - ([0d0b7c7](http://192.168.2.134:3000/intipunku/frankenbote/commit/0d0b7c7e87622ab049be4aad5a5f3aa6c7fcf962)) - kura_andi
+
+### Documentation
+
+- **(agents)** Clarify linter/formatter usage and ruff issue handling - ([e80c0fc](http://192.168.2.134:3000/intipunku/frankenbote/commit/e80c0fc3d7ea80d6ceb00ef74663db9b5a179c8c)) - kura_andi
+- **(agents)** Add AGENTS.md and CLAUDE.md for AI coding agent guidance - ([ca1a01d](http://192.168.2.134:3000/intipunku/frankenbote/commit/ca1a01d1cf51d3f8c393b746c1c8ae3c603dd104)) - kura_andi
+
+### Features
+
+- **(agents)** Add Gitea MCP server configuration - ([9f65cdf](http://192.168.2.134:3000/intipunku/frankenbote/commit/9f65cdf717ae048ed69605dd69a20261decd63da)) - kura_andi
+- **(llm)** Implement per-task reasoning effort mapping and headroom adjustments - ([4964045](http://192.168.2.134:3000/intipunku/frankenbote/commit/496404545e83ca18204f4d6ad33e635ab03edaab)) - kura_andi
+- **(llm)** Add OpenAI client implementation and support for multiple LLM providers - ([7c4f9d4](http://192.168.2.134:3000/intipunku/frankenbote/commit/7c4f9d4bea56111381d2793ab57f8658ff7c36c4)) - kura_andi
+- **(llm)** Implement LLM configuration and task management - ([7b9e160](http://192.168.2.134:3000/intipunku/frankenbote/commit/7b9e160178d79d9c9d2a80e0cc0253a47f0116dc)) - kura_andi
+- **(llm)** Implement provider-agnostic LLM client interface with retry logic and error handling - ([3d14162](http://192.168.2.134:3000/intipunku/frankenbote/commit/3d14162c986fa7a046903b92b5fcafd8ff710840)) - kura_andi
+- **(renderer)** Implement expandable article headlines with favicon support - ([4f0bbd3](http://192.168.2.134:3000/intipunku/frankenbote/commit/4f0bbd333df9d6b7eaa70a4e6682d38acacd6bee)) - kura_andi
+
+### Miscellaneous Chores
+
+- **(llm)** Drop needless quotes from task annotations - ([90f7a71](http://192.168.2.134:3000/intipunku/frankenbote/commit/90f7a7159b1d0a476b5d4038b6886878d34459b5)) - kura_andi
+- **(llm)** Simplify type parameter declarations in task classes - ([d4eb52b](http://192.168.2.134:3000/intipunku/frankenbote/commit/d4eb52b252c4fb4b6c5857fd5b8e5642220e2f08)) - kura_andi
+- **(llm)** Update curator model to claude-sonnet-5 for improved performance - ([9337e0a](http://192.168.2.134:3000/intipunku/frankenbote/commit/9337e0a1542cffe45832ba11dd2dde1074e92933)) - kura_andi
+- **(llm)** Enhance error handling and logging in AnthropicLLMClient - ([3309b9a](http://192.168.2.134:3000/intipunku/frankenbote/commit/3309b9a8ee608bc7597565e29bc9294916e043b4)) - kura_andi
+- **(summarizer)** Update tool input handling and improve code readability - ([5fa7ae3](http://192.168.2.134:3000/intipunku/frankenbote/commit/5fa7ae3e4dd130cbe489781e2d508355fb7b9432)) - kura_andi
+- **(tests)** Clean up test code formatting and improve readability - ([bd67967](http://192.168.2.134:3000/intipunku/frankenbote/commit/bd679671c3ebe988d5cf9a0922b3eff83c6bf777)) - kura_andi
+
+### Refactoring
+
+- **(llm)** Make each task own its prompt and response interpretation - ([040df0d](http://192.168.2.134:3000/intipunku/frankenbote/commit/040df0da7a08b9dadfd859518f8c21825f056e46)) - kura_andi
+
+---
 ## [0.4.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.3.0..v0.4.0) - 2026-06-12
 
 ### Changed
