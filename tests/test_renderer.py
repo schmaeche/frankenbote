@@ -5,6 +5,7 @@ from pathlib import Path
 from frankenbote.renderer import (
     RenderConfig,
     _copy_assets,
+    _favicon_url,
     _index_entry,
     _list_recent_editions,
     _make_jinja_env,
@@ -230,9 +231,9 @@ def _edition_with_articles(curated_articles: list) -> Edition:
     )
 
 
-def _render_real_template(edition: Edition) -> str:
+def _render_real_template(edition: Edition, priority_labels: dict | None = None) -> str:
     env = _make_jinja_env(REAL_TEMPLATES_DIR)
-    return _render_edition(env, edition, priority_labels={})
+    return _render_edition(env, edition, priority_labels=priority_labels or {})
 
 
 class TestArticleImages:
@@ -259,7 +260,7 @@ class TestArticleImages:
         html = _render_real_template(_edition_with_articles([lead]))
         assert "article-image" not in html
 
-    def test_image_is_linked_lazy_and_decorative(self):
+    def test_image_is_lazy_and_decorative(self):
         lead = make_curated(
             is_lead=True,
             article=make_article(image_url="https://img.example.com/full.jpg"),
@@ -269,9 +270,27 @@ class TestArticleImages:
         img_tag = html[img_start:html.index(">", img_start) + 1]
         assert 'alt=""' in img_tag
         assert 'loading="lazy"' in img_tag
-        # The image sits inside a link to the article, before the headline.
-        enclosing = html[html.rindex('<a href="https://example.com/article/1"', 0, img_start):img_start]
-        assert "</a>" not in enclosing
+
+    def test_image_is_not_an_outbound_link(self):
+        lead = make_curated(
+            is_lead=True,
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        img_start = html.rindex("<img", 0, html.index("full.jpg"))
+        head_start = html.rindex("<article", 0, img_start)
+        # "<a " with the space: "<article" would match a bare "<a".
+        assert "<a " not in html[head_start:img_start]
+
+    def test_image_sits_inside_the_disclosure_so_it_expands(self):
+        lead = make_curated(
+            is_lead=True,
+            wrap_up="Der Absatz.",
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        summary = _disclosure_summary(html)
+        assert "full.jpg" in summary
 
 
 # ── render_all ────────────────────────────────────────────────────────────────
@@ -356,3 +375,183 @@ class TestRenderAll:
         assert stats["editions_rendered"] == 0
         assert stats["editions_pruned"] == 0
         assert stats["assets_copied"] == 0
+
+
+# ── Headline disclosure and source favicon (ticket #42) ─────────────────────
+
+def _disclosure_summary(html: str) -> str:
+    """The inner HTML of the article card's <summary> toggle."""
+    start = html.index('<summary class="article__disclosure">')
+    return html[start:html.index("</summary>", start)]
+
+
+class TestFaviconUrl:
+    def test_builds_favicon_url_from_host(self):
+        assert _favicon_url("https://www.nordbayern.de/artikel/1") == (
+            "https://www.nordbayern.de/favicon.ico"
+        )
+
+    def test_upgrades_http_source_to_https(self):
+        assert _favicon_url("http://example.com/a") == "https://example.com/favicon.ico"
+
+    def test_drops_userinfo_from_host(self):
+        assert _favicon_url("https://user:pw@example.com/a") == (
+            "https://example.com/favicon.ico"
+        )
+
+    def test_keeps_explicit_port(self):
+        assert _favicon_url("https://example.com:8443/a") == (
+            "https://example.com:8443/favicon.ico"
+        )
+
+    def test_lowercases_host(self):
+        assert _favicon_url("https://EXAMPLE.com/a") == "https://example.com/favicon.ico"
+
+    def test_non_http_scheme_returns_none(self):
+        assert _favicon_url("mailto:redaktion@example.com") is None
+
+    def test_missing_host_returns_none(self):
+        assert _favicon_url("/relative/path") is None
+
+    def test_empty_link_returns_none(self):
+        assert _favicon_url("") is None
+
+    def test_unparsable_link_returns_none(self):
+        # urlparse raises ValueError on a malformed IPv6 host.
+        assert _favicon_url("https://[::1/artikel") is None
+
+
+class TestHeadlineDisclosure:
+    def test_headline_is_not_linked_to_the_source(self):
+        lead = make_curated(is_lead=True, wrap_up="Der Absatz.")
+        html = _render_real_template(_edition_with_articles([lead]))
+        title_start = html.index('<h3 class="article__title">')
+        assert "<a" not in html[title_start:html.index("</h3>", title_start)]
+
+    def test_headline_is_the_summary_of_the_wrap_up_details(self):
+        lead = make_curated(is_lead=True, wrap_up="Erster Absatz.\n\nZweiter Absatz.")
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert '<details class="article__wrapup-details"' in html
+        assert "Test Article" in _disclosure_summary(html)
+
+    def test_wrap_up_paragraphs_follow_the_summary(self):
+        lead = make_curated(is_lead=True, wrap_up="Erster Absatz.\n\nZweiter Absatz.")
+        html = _render_real_template(_edition_with_articles([lead]))
+        body = html[html.index("</summary>"):]
+        assert '<p class="article__wrapup">Erster Absatz.</p>' in body
+        assert '<p class="article__wrapup">Zweiter Absatz.</p>' in body
+
+    def test_teaser_is_inside_the_summary_so_it_expands(self):
+        lead = make_curated(
+            is_lead=True, wrap_up="Der Absatz.", ai_summary="Die Kurzfassung."
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "Die Kurzfassung." in _disclosure_summary(html)
+
+    def test_expand_cue_is_the_last_element_of_the_summary(self):
+        lead = make_curated(
+            is_lead=True, wrap_up="Der Absatz.", ai_summary="Die Kurzfassung."
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        summary = _disclosure_summary(html)
+        assert summary.index("article__wrapup-cue") > summary.index("Die Kurzfassung.")
+
+    def test_article_without_wrap_up_renders_no_disclosure(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "article__wrapup-details" not in html
+        assert '<div class="article__head">' in html
+        assert "Test Article" in html
+
+
+def _favicon_tag(html: str) -> str:
+    start = html.index('<img class="favicon"')
+    return html[start:html.index(">", start) + 1]
+
+
+def _source_link(html: str) -> str:
+    """The full <a class="source-link"> element of the first article card."""
+    start = html.index('<a class="source-link"')
+    return html[start:html.index("</a>", start)]
+
+
+class TestSourceFavicon:
+    def test_favicon_is_hotlinked_from_the_source_domain(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert 'src="https://example.com/favicon.ico"' in _favicon_tag(html)
+
+    def test_favicon_falls_back_to_the_local_frankenrechen(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "this.src='../assets/frankenrechen.svg';" in _favicon_tag(html)
+
+    def test_fallback_clears_its_own_handler_to_avoid_a_loop(self):
+        # Without this a failing fallback would re-fire onerror forever.
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        tag = _favicon_tag(html)
+        assert tag.index("this.onerror=null") < tag.index("this.src=")
+
+    def test_favicon_is_decorative_and_fixed_size(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        tag = _favicon_tag(html)
+        assert 'alt=""' in tag
+        assert 'width="16" height="16"' in tag
+
+    def test_source_link_opens_the_article_in_a_safe_new_tab(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        start = html.index('<a class="source-link"')
+        link = html[start:html.index(">", start)]
+        assert 'href="https://example.com/article/1"' in link
+        assert 'target="_blank"' in link
+        assert 'rel="noopener noreferrer"' in link
+
+    def test_source_link_is_labelled_for_screen_readers(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert 'aria-label="Originalartikel bei Test Source \u00f6ffnen"' in html
+
+    def test_source_link_sits_in_the_meta_line(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        meta_start = html.index('<div class="article__meta">')
+        meta = html[meta_start:html.index("</div>", meta_start)]
+        assert "Test Source" in meta
+        assert 'class="source-link"' in meta
+
+    def test_link_covers_the_publisher_name(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert '<span class="article__source">Test Source</span>' in _source_link(html)
+
+    def test_link_covers_the_published_date(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert '<span class="article__date">04.05. 10:00</span>' in _source_link(html)
+
+    def test_priority_badge_stays_outside_the_link(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(
+            _edition_with_articles([lead]), priority_labels={"P1": "Lokal"}
+        )
+        assert "Lokal" not in _source_link(html)
+
+    def test_article_without_a_date_still_links(self):
+        lead = make_curated(is_lead=True, article=make_article(published=None))
+        html = _render_real_template(_edition_with_articles([lead]))
+        link = _source_link(html)
+        assert "article__date" not in link
+        assert "Test Source" in link
+
+    def test_link_without_usable_host_renders_the_fallback_directly(self):
+        lead = make_curated(
+            is_lead=True, article=make_article(link="mailto:redaktion@example.com")
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        tag = _favicon_tag(html)
+        assert 'src="../assets/frankenrechen.svg"' in tag
+        # No point hotlinking, so no handler either.
+        assert "onerror" not in tag

@@ -23,6 +23,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -103,6 +104,25 @@ def _split_paragraphs(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _favicon_url(link: str) -> str | None:
+    """Best-guess favicon URL for an article link: https://{host}/favicon.ico.
+
+    We never fetch or verify it — the page hotlinks it and falls back to
+    frankenrechen.svg client-side if the publisher serves nothing there.
+    Returns None for links with no usable http(s) host, so the template can
+    render the fallback icon directly instead of a guaranteed-broken request.
+    """
+    try:
+        parsed = urlparse(link)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    # hostname, not netloc: drops any user:password@ prefix and lowercases.
+    host = f"{parsed.hostname}:{parsed.port}" if parsed.port else parsed.hostname
+    return f"https://{host}/favicon.ico"
+
+
 def _make_jinja_env(templates_dir: Path) -> Environment:
     """Build the Jinja2 environment with autoescape on."""
     env = Environment(
@@ -113,6 +133,7 @@ def _make_jinja_env(templates_dir: Path) -> Environment:
     )
     env.filters["calendar_week"] = lambda iso_date: datetime.fromisoformat(iso_date).strftime("%V/%y")
     env.filters["paragraphs"] = _split_paragraphs
+    env.filters["favicon_url"] = _favicon_url
     return env
 
 

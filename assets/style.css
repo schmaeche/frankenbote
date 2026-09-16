@@ -183,19 +183,8 @@ main {
   border-bottom: 2px solid var(--color-rule);
 }
 
-.article__title a {
-  color: var(--color-text);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.15s ease;
-}
-
-.article__title a:hover,
-.article__title a:focus-visible {
-  border-bottom-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
 .article__summary {
+  display: block;                    /* a <span>: <summary> takes no <p> */
   font-size: 0.95rem;
   line-height: 1.55;
   color: var(--color-text);
@@ -215,6 +204,26 @@ main {
   font-weight: 500;
 }
 
+/* Publisher, favicon and date are one flex item in .article__meta now, so
+   the spacing between them lives here rather than on the meta line's gap. */
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.source-link:hover,
+.source-link:focus-visible {
+  color: var(--color-accent);
+}
+
+/* Fixed box: the publisher favicon and the Frankenrechen fallback that
+   replaces it occupy the same space, so a missing icon shifts no layout. */
+.favicon {
+  width: 16px;
+  height: 16px;
+}
+
 .article__priority {
   display: inline-block;
   padding: 0.1rem 0.45rem;
@@ -226,31 +235,38 @@ main {
   color: var(--color-accent);
 }
 
-.article__wrapup-details {
-  display: flex;
-  flex-direction: column-reverse;
+.article__wrapup-details,
+.article__head {
   margin-bottom: var(--space-md);
 }
 
-.article__wrapup-details > summary {
+/* Image, headline and teaser all live inside <summary>, so clicking any of
+   them expands the wrap-up. Their text stays selectable — only the cue
+   below them opts out of selection. */
+.article__disclosure {
   cursor: pointer;
+  list-style: none;
+}
+
+.article__disclosure::-webkit-details-marker {
+  display: none;
+}
+
+/* Last child of <summary>, so it sits below image, headline and teaser. */
+.article__wrapup-cue {
+  display: block;
   font-size: 0.92rem;
   font-weight: 500;
   color: var(--color-accent);
-  list-style: none;
   user-select: none;
   margin-top: var(--space-xs);
 }
 
-.article__wrapup-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.article__wrapup-details > summary::before {
+.article__wrapup-cue::before {
   content: "▸ Weiterlesen ...";
 }
 
-.article__wrapup-details[open] > summary::before {
+.article__wrapup-details[open] .article__wrapup-cue::before {
   content: "▴ Einklappen ...";
 }
 

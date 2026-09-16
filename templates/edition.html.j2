@@ -1,5 +1,22 @@
 <!DOCTYPE html>
 <html lang="de">
+{#
+  The card head — image, headline, teaser — is shared between the
+  expandable and the non-expandable article layouts, so it lives in a macro.
+  Everything in it must be phrasing or heading content: it is rendered
+  inside <summary>, which accepts no block-level children.
+#}
+{% macro article_head(item) -%}
+{% if item.article.image_url %}
+<img class="article-image article-image--{{ 'hero' if item.is_lead else 'thumb' }}" src="{{ item.article.image_url }}" alt="" loading="lazy">
+{% endif %}
+<h3 class="article__title">{{ item.article.title }}</h3>
+{% if item.ai_summary %}
+<span class="article__summary">{{ item.ai_summary }}</span>
+{% elif item.article.summary %}
+<span class="article__summary">{{ item.article.summary | safe }}</span>
+{% endif %}
+{%- endmacro %}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -37,49 +54,57 @@
 
         {% for item in section.articles %}
         <article class="article">
-            {% if item.article.image_url %}
-            <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
-                <img class="article-image article-image--{{ 'hero' if item.is_lead else 'thumb' }}"
-                     src="{{ item.article.image_url }}"
-                     alt=""
-                     loading="lazy">
-            </a>
-            {% endif %}
-            <h3 class="article__title">
-                <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
-                    {{ item.article.title }}
-                </a>
-            </h3>
-
-            {% if item.ai_summary %}
-            <p class="article__summary">
-                <a href="{{ item.article.link }}" target="_blank" rel="noopener noreferrer">
-                    {{ item.ai_summary }}
-                </a>
-            </p>
-            {% elif item.article.summary %}
-            <p class="article__summary">{{ item.article.summary | safe }}</p>
-            {% endif %}
-
             {% if item.wrap_up %}
+            {# Image, headline and teaser are all inside <summary>, so any of
+               them toggles the wrap-up. The source link lives in the meta
+               line below, not on the headline. #}
             <details class="article__wrapup-details" name="wrapup">
-                <summary></summary>
+                <summary class="article__disclosure">
+                    {{ article_head(item) }}
+                    <span class="article__wrapup-cue"></span>
+                </summary>
                 {% for paragraph in item.wrap_up | paragraphs %}
                 <p class="article__wrapup">{{ paragraph }}</p>
                 {% endfor %}
             </details>
+            {% else %}
+            {# No wrap-up text to reveal — render the same head with no
+               disclosure rather than an expander that opens onto nothing. #}
+            <div class="article__head">
+                {{ article_head(item) }}
+            </div>
             {% endif %}
 
             <div class="article__meta">
                 <span class="article__priority">{{ priority_labels.get(item.priority.value, item.priority.value) }}</span>
-                <span class="article__source">{{ item.article.source_name }}</span>
-                {% if item.article.published %}
-                <span class="article__date">
-                    {{ item.article.published.strftime('%d.%m. %H:%M') }}
-                </span>
-                {% endif %}
+                {# The whole byline — publisher, favicon, date — is the one
+                   outbound link on the card. #}
+                <a class="source-link"
+                   href="{{ item.article.link }}"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   aria-label="Originalartikel bei {{ item.article.source_name }} öffnen">
+                    <span class="article__source">{{ item.article.source_name }}</span>
+                    {% set favicon = item.article.link | favicon_url %}
+                    {% if favicon %}
+                    {# onerror, not <object>: publishers serve HTML at
+                       /favicon.ico often enough (soft 404s) that <object>
+                       would embed a whole page here instead of falling back.
+                       An <img> cannot decode HTML, so it errors and swaps in
+                       the Frankenrechen. #}
+                    <img class="favicon"
+                         src="{{ favicon }}"
+                         alt="" width="16" height="16"
+                         onerror="this.onerror=null; this.src='../assets/frankenrechen.svg';">
+                    {% else %}
+                    <img class="favicon" src="../assets/frankenrechen.svg" alt="" width="16" height="16">
+                    {% endif %}
+                    {% if item.article.published %}
+                    <span class="article__date">{{ item.article.published.strftime('%d.%m. %H:%M') }}</span>
+                    {% endif %}
+                </a>
             </div>
-            
+
             {% if item.rationale %}
             <details class="article__rationale-details">
                 <summary></summary>
