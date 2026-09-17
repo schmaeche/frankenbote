@@ -3,7 +3,7 @@
 Changes to frankenbote.
 
 ---
-## [unreleased]
+## [0.5.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.4.0..v0.5.0) - 2026-09-16
 
 ### Changed
 
