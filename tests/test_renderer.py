@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from frankenbote.renderer import (
+    ERROR_PAGES,
     RenderConfig,
     _copy_assets,
     _favicon_url,
@@ -304,6 +305,9 @@ def _minimal_templates(parent: Path) -> Path:
     (templates_dir / "index.html.j2").write_text(
         "<html><body>index</body></html>", encoding="utf-8"
     )
+    (templates_dir / "error.html.j2").write_text(
+        "<html><body>{{ status_code }}{{ title }}</body></html>", encoding="utf-8"
+    )
     return templates_dir
 
 
@@ -323,7 +327,12 @@ class TestRenderAll:
         templates_dir = _minimal_templates(tmp_path)
         monkeypatch.setattr("frankenbote.renderer._list_recent_editions", lambda n: [])
         stats = render_all(_render_config(tmp_path, templates_dir))
-        assert set(stats.keys()) == {"editions_rendered", "editions_pruned", "assets_copied"}
+        assert set(stats.keys()) == {
+            "editions_rendered",
+            "editions_pruned",
+            "error_pages_rendered",
+            "assets_copied",
+        }
 
     def test_creates_index_html(self, tmp_path, monkeypatch):
         templates_dir = _minimal_templates(tmp_path)
@@ -555,3 +564,59 @@ class TestSourceFavicon:
         assert 'src="../assets/frankenrechen.svg"' in tag
         # No point hotlinking, so no handler either.
         assert "onerror" not in tag
+
+
+# ── Error pages ──────────────────────────────────────────────────────────────
+
+def _render_error_page(filename: str) -> str:
+    """Render one ERROR_PAGES entry with the real template."""
+    env = _make_jinja_env(REAL_TEMPLATES_DIR)
+    return env.get_template("error.html.j2").render(**ERROR_PAGES[filename])
+
+
+class TestErrorPages:
+    def test_render_all_writes_every_error_page(self, tmp_path, monkeypatch):
+        templates_dir = _minimal_templates(tmp_path)
+        monkeypatch.setattr("frankenbote.renderer._list_recent_editions", lambda n: [])
+        stats = render_all(_render_config(tmp_path, templates_dir))
+        assert stats["error_pages_rendered"] == len(ERROR_PAGES)
+        for filename in ERROR_PAGES:
+            assert (tmp_path / "output" / filename).exists()
+
+    def test_error_pages_are_not_pruned_as_stale_editions(self, tmp_path, monkeypatch):
+        templates_dir = _minimal_templates(tmp_path)
+        monkeypatch.setattr("frankenbote.renderer._list_recent_editions", lambda n: [])
+        stats = render_all(_render_config(tmp_path, templates_dir))
+        assert stats["editions_pruned"] == 0
+        assert (tmp_path / "output" / "error.html").exists()
+
+    def test_401_page_names_its_status_code(self):
+        html = _render_error_page("error-401.html")
+        assert '<p class="error__code">401</p>' in html
+
+    def test_generic_page_renders_no_status_code(self):
+        html = _render_error_page("error.html")
+        assert "error__code" not in html
+
+    def test_every_page_links_to_the_index_to_retrigger_auth(self):
+        for filename in ERROR_PAGES:
+            html = _render_error_page(filename)
+            assert '<a class="error__action" href="/index.html">' in html
+
+    def test_asset_paths_are_absolute(self):
+        # An ErrorDocument is served at the URL that failed, which may sit at
+        # any depth — relative asset paths would resolve against that depth.
+        for filename in ERROR_PAGES:
+            html = _render_error_page(filename)
+            assert 'href="/assets/style.css"' in html
+            assert 'src="/assets/frankenrechen.svg"' in html
+            assert "../assets/" not in html
+
+    def test_pages_are_in_english(self):
+        for filename in ERROR_PAGES:
+            assert '<html lang="en">' in _render_error_page(filename)
+
+    def test_pages_stay_out_of_search_indexes(self):
+        for filename in ERROR_PAGES:
+            html = _render_error_page(filename)
+            assert '<meta name="robots" content="noindex, nofollow">' in html

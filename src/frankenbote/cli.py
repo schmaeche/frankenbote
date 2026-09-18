@@ -474,6 +474,7 @@ def render_cmd() -> None:
     click.echo(f"Rendered {stats['editions_rendered']} edition(s).")
     if stats["editions_pruned"]:
         click.echo(f"Pruned {stats['editions_pruned']} old HTML file(s).")
+    click.echo(f"Rendered {stats['error_pages_rendered']} error page(s).")
     click.echo(f"Copied {stats['assets_copied']} asset file(s).")
     click.echo("\nOpen output/index.html in a browser to view.")
 
