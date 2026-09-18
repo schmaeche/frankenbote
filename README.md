@@ -200,6 +200,51 @@ authentication mechanism for access control. For Apache, Basic Auth via
 for a personal-scale site. HTTPS is non-negotiable; never deploy Basic
 Auth over plain HTTP, since the password is sent on every request.
 
+### Error pages
+
+The renderer writes two static error pages next to `index.html`, and the
+publisher uploads them:
+
+| File | Purpose |
+|---|---|
+| `error-401.html` | Basic Auth failed or no credentials were sent |
+| `error.html` | Catch-all for every other status (403, 404, 500, …) |
+
+Point the web server at them. For Apache:
+
+```apache
+ErrorDocument 401 /error-401.html
+ErrorDocument 403 /error.html
+ErrorDocument 404 /error.html
+ErrorDocument 500 /error.html
+```
+
+Two things to get right, or the pages will not work when they are needed
+most:
+
+- **The error pages and `/assets/` must be readable without
+  authentication.** Otherwise serving the 401 page needs credentials the
+  visitor does not have, and the server falls back to its own bare
+  default page. With `.htaccess` in the site root:
+
+  ```apache
+  AuthType Basic
+  AuthName "Der Frankenbote"
+  AuthUserFile /path/to/.htpasswd
+  Require valid-user
+
+  <FilesMatch "^error(-401)?\.html$">
+      Require all granted
+  </FilesMatch>
+  ```
+
+  and a second `.htaccess` in `assets/` containing `Require all granted`
+  (or the equivalent `<Directory>` block in the server config).
+- **The paths in `ErrorDocument` must be absolute** (`/error.html`, not
+  `error.html`). The error document is served under the URL that failed,
+  which can sit at any depth — this is also why the pages reference
+  `/assets/style.css` rather than a relative path.
+
 ---
 
 ## Running locally

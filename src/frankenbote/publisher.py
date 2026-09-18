@@ -10,6 +10,7 @@ Reads:
 
 Writes (on the remote server):
   - <remote_dir>/index.html
+  - <remote_dir>/error.html, <remote_dir>/error-401.html
   - <remote_dir>/editions/YYYY-MM-DD.html
   - <remote_dir>/assets/style.css
   - <remote_dir>/assets/frankenrechen.svg
@@ -17,8 +18,8 @@ Writes (on the remote server):
 Deletes (defensively, only files matching the editions pattern):
   - <remote_dir>/editions/*.html files not in the local set
 
-NEVER touches anything outside <remote_dir>. NEVER deletes index.html
-or anything in assets/. Defensive design — this is a destructive operation
+NEVER touches anything outside <remote_dir>. NEVER deletes index.html,
+the error pages, or anything in assets/. Defensive design — this is a destructive operation
 running over the network against a real production environment.
 """
 
@@ -32,6 +33,8 @@ from pathlib import Path
 
 import click
 import paramiko
+
+from frankenbote.renderer import ERROR_PAGES
 
 
 # Strict: edition HTML filename must look like 'YYYY-MM-DD.html'.
@@ -146,6 +149,14 @@ def publish(config: PublisherConfig | None = None) -> dict[str, int]:
         if local_index.is_file():
             _upload_file(sftp, local_index, f"{config.remote_dir}/index.html")
             stats["uploaded"] += 1
+
+        # Error pages: served by the web server's ErrorDocument directives,
+        # so they live next to index.html and are never pruned.
+        for filename in sorted(ERROR_PAGES):
+            local_error_page = config.local_output_dir / filename
+            if local_error_page.is_file():
+                _upload_file(sftp, local_error_page, f"{config.remote_dir}/{filename}")
+                stats["uploaded"] += 1
 
         # Prune remote editions not in our local set.
         # CRITICAL: only touch files that match the strict edition pattern.

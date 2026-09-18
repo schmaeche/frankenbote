@@ -8,6 +8,8 @@ Reads:
 Writes (to output/):
   - editions/YYYY-MM-DD.html      (one per edition)
   - index.html                    (archive listing the last N editions)
+  - error.html                    (catch-all web-server error page)
+  - error-401.html                (Basic Auth failure page)
   - assets/style.css              (copy of source asset)
   - assets/frankenrechen.svg      (copy of source asset)
 
@@ -37,6 +39,49 @@ DEFAULT_TEMPLATES_DIR = Path("templates")
 DEFAULT_ASSETS_DIR = Path("assets")
 DEFAULT_OUTPUT_DIR = Path("output")
 DEFAULT_RETENTION = 5
+
+
+# ---------- Error pages ----------
+
+# Static pages the web server points its ErrorDocument directives at. They
+# are rendered from one template so wording and markup cannot drift; the
+# filename is what the server config references. English on purpose —
+# server chrome, not edition content.
+ERROR_PAGES: dict[str, dict] = {
+    "error.html": {
+        "subtitle": "Error",
+        "status_code": "",
+        "title": "This page is not available",
+        "body": [
+            "The page could not be delivered. It may have been removed, "
+            "renamed, or the server ran into a problem while answering the "
+            "request.",
+            "Only the most recent editions are kept online, so a link to an "
+            "older one stops working once it has been pruned.",
+        ],
+        "action_label": "Go to the home page",
+        "hint": (
+            "If you expected a login prompt instead, open the home page — it "
+            "asks for your credentials again."
+        ),
+    },
+    "error-401.html": {
+        "subtitle": "Sign in required",
+        "status_code": "401",
+        "title": "Authentication required",
+        "body": [
+            "This site is private. Your browser either sent no credentials "
+            "or the username and password were not accepted.",
+            "Opening the home page triggers a fresh login prompt.",
+        ],
+        "action_label": "Sign in and open the home page",
+        "hint": (
+            "No prompt appearing usually means the browser is replaying the "
+            "credentials it cached for this site. Closing every tab for the "
+            "site, or using a private window, clears them."
+        ),
+    },
+}
 
 
 @dataclass
@@ -80,6 +125,9 @@ def render_all(config: RenderConfig | None = None) -> dict[str, int]:
     index_html = _render_index(env, index_entries)
     (config.output_dir / "index.html").write_text(index_html, encoding="utf-8")
 
+    # Render the web server's error pages (401 and the catch-all).
+    error_pages = _render_error_pages(env, config.output_dir)
+
     # Copy assets (CSS, SVG). Cheap; do it every render so changes propagate.
     pruned_count = _prune_old_html(output_editions_dir, kept_dates={e.edition_date for e in editions})
     copied = _copy_assets(config.assets_dir, output_assets_dir)
@@ -87,6 +135,7 @@ def render_all(config: RenderConfig | None = None) -> dict[str, int]:
     return {
         "editions_rendered": len(editions),
         "editions_pruned": pruned_count,
+        "error_pages_rendered": error_pages,
         "assets_copied": copied,
     }
 
@@ -177,6 +226,20 @@ def _render_edition(
 def _render_index(env: Environment, entries: list[dict]) -> str:
     template = env.get_template("index.html.j2")
     return template.render(editions=entries)
+
+
+def _render_error_pages(env: Environment, output_dir: Path) -> int:
+    """Write every page in ERROR_PAGES to output_dir. Returns count written.
+
+    They sit next to index.html rather than in editions/ because the
+    template links to /index.html and /assets/ with absolute paths, and
+    because _prune_old_html must never consider them stale editions.
+    """
+    template = env.get_template("error.html.j2")
+    for filename, context in ERROR_PAGES.items():
+        html = template.render(**context)
+        (output_dir / filename).write_text(html, encoding="utf-8")
+    return len(ERROR_PAGES)
 
 
 def _index_entry(edition: Edition) -> dict:
