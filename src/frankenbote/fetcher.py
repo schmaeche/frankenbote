@@ -1,8 +1,9 @@
-"""Fetcher — downloads and parses RSS/Atom feeds.
+"""Fetcher — downloads and parses RSS/Atom feeds and scraped pages.
 
-Fetches all enabled sources concurrently using async httpx, then parses
-each feed with feedparser. Returns Article objects ready for the next
-pipeline stage.
+Fetches all enabled sources concurrently using async httpx. Feeds
+(`type: rss`, the default) are parsed with feedparser; pages without a
+feed (`type: scrape`) go through scraper.py. Both return Article objects
+ready for the next pipeline stage.
 """
 
 import asyncio
@@ -16,6 +17,7 @@ from urllib.parse import urlsplit
 import feedparser
 import httpx
 
+from frankenbote import scraper
 from frankenbote.models import Article, Source
 
 # --- Limits and identification ---
@@ -38,16 +40,19 @@ class FetchResult:
         return self.error is None
 
 
+def _require_https(source: Source) -> None:
+    """Reject plain HTTP unless the source explicitly allows it."""
+    if str(source.url).startswith("http://") and not source.allow_http:
+        raise ValueError(f"plain HTTP not allowed for {source.id}; set allow_http: true if intentional")
+
+
 async def _download(client: httpx.AsyncClient, source: Source) -> bytes:
     """Download a feed's bytes with size + timeout limits.
 
     Raises httpx.HTTPError on network failure or invalid response.
     """
     url = str(source.url)
-
-    # Reject plain HTTP unless the source explicitly allows it.
-    if url.startswith("http://") and not source.allow_http:
-        raise ValueError(f"plain HTTP not allowed for {source.id}; set allow_http: true if intentional")
+    _require_https(source)
 
     response = await client.get(url, follow_redirects=True)
     response.raise_for_status()
@@ -190,21 +195,44 @@ def _parse(source: Source, raw_bytes: bytes) -> list[Article]:
     return articles
 
 
-async def _fetch_one(client: httpx.AsyncClient, source: Source) -> FetchResult:
+async def _scrape(client: httpx.AsyncClient, session: scraper.ScrapeSession, source: Source) -> list[Article]:
+    """Fetch a scraped source: robots.txt check, politeness delay, download, parse."""
+    url = str(source.url)
+    _require_https(source)  # before robots.txt, so no plain-HTTP request goes out
+    await session.ensure_allowed(url)
+    await session.wait_turn(url)
+    articles = scraper.parse(source, await _download(client, source))
+    if not articles:
+        # A scraper that silently breaks is worse than one that fails loudly.
+        raise ValueError("no articles found — the page layout may have changed or the selectors no longer match")
+    return articles
+
+
+async def _fetch_one(client: httpx.AsyncClient, session: scraper.ScrapeSession, source: Source) -> FetchResult:
     """Fetch and parse a single source. Never raises — errors land in FetchResult."""
     try:
-        raw = await _download(client, source)
-        articles = _parse(source, raw)
+        if source.type == "scrape":
+            articles = await _scrape(client, session, source)
+        else:
+            articles = _parse(source, await _download(client, source))
         return FetchResult(source=source, articles=articles)
-    except Exception as e:  # broad on purpose — one bad feed shouldn't kill the run
+    except Exception as e:  # broad on purpose — one bad source shouldn't kill the run
         return FetchResult(source=source, articles=[], error=f"{type(e).__name__}: {e}")
 
 
-async def fetch_all(sources: list[Source]) -> list[FetchResult]:
-    """Fetch every source in parallel. Always returns one FetchResult per source."""
+async def fetch_all(
+    sources: list[Source],
+    min_host_interval: float = scraper.MIN_HOST_INTERVAL_SECONDS,
+) -> list[FetchResult]:
+    """Fetch every source in parallel. Always returns one FetchResult per source.
+
+    `min_host_interval` spaces out requests to one host for scraped sources
+    only; feeds are fetched as before.
+    """
     headers = {"User-Agent": USER_AGENT}
     timeout = httpx.Timeout(TIMEOUT_SECONDS)
     limits = httpx.Limits(max_connections=10)
 
     async with httpx.AsyncClient(headers=headers, timeout=timeout, limits=limits) as client:
-        return await asyncio.gather(*(_fetch_one(client, s) for s in sources))
+        session = scraper.ScrapeSession(client, USER_AGENT, min_interval=min_host_interval)
+        return await asyncio.gather(*(_fetch_one(client, session, s) for s in sources))

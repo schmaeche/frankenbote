@@ -7,8 +7,9 @@ or with an invalid URL, Pydantic raises a clear error.
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class Category(str, Enum):
@@ -18,6 +19,23 @@ class Category(str, Enum):
     MUNICIPAL = "municipal"
     NATIONAL = "national"
     TABLOID = "tabloid"
+
+
+class ScrapeConfig(BaseModel):
+    """CSS selectors for a source scraped from HTML instead of a feed.
+
+    The defaults target semantic markup (`<article>` with a heading and a
+    paragraph), so most sites need no selectors at all. Selectors are
+    applied inside each matched article element.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    article_selector: str = Field(default="article", min_length=1)
+    title_selector: str = Field(default="h2, h3", min_length=1)
+    summary_selector: str = Field(default="p", min_length=1)
+    # An attribute name, not a selector — it is interpolated into one.
+    link_attr: str = Field(default="href", pattern=r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 
 class Source(BaseModel):
@@ -30,6 +48,16 @@ class Source(BaseModel):
     enabled: bool = True
     allow_http: bool = False
     max_articles: int = Field(default=50, ge=1, le=500)
+    type: Literal["rss", "scrape"] = "rss"
+    scrape: ScrapeConfig | None = None  # filled with defaults for type: scrape
+
+    @model_validator(mode="after")
+    def _check_scrape_block(self) -> Self:
+        if self.type == "rss" and self.scrape is not None:
+            raise ValueError(f"source {self.id!r}: 'scrape:' is only valid with 'type: scrape'")
+        if self.type == "scrape" and self.scrape is None:
+            self.scrape = ScrapeConfig()
+        return self
 
 
 class Article(BaseModel):

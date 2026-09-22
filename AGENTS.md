@@ -131,6 +131,15 @@ fetcher.py → filter.py → paywall_gate.py + curator.py → selector.py → su
   record**; HTML in `output/` is always regenerable from it (`frankenbote
   render`)
 
+`fetcher.py` also covers sources without a feed: `type: scrape` in
+`sources.yaml` routes a source through `scraper.py`, which extracts
+`<article>` teasers from the listing page into the same `Article` shape.
+`scraper.parse()` is pure (HTML bytes in, articles out); `ScrapeSession`
+holds the per-run network state (robots.txt cache, per-host delay).
+Dates come from the listing page only — article pages are never fetched.
+A scrape returning zero articles is a `FetchResult` error on purpose, so
+a layout change fails loudly instead of silently shrinking the pool.
+
 Pydantic models in `models.py` are the shape contract threaded through every
 stage (`Article` → `CuratedArticle` → `Edition`); read that file before
 touching any pipeline stage.

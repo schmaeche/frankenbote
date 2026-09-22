@@ -8,7 +8,7 @@ A personal weekly news digest for Franconia, Bavaria, and Germany — generated 
 
 The pipeline runs in sequential stages:
 
-1. **Fetch** — pulls RSS/Atom feeds from configured news sources
+1. **Fetch** — pulls RSS/Atom feeds from configured news sources, and scrapes `<article>` teasers from sites without a feed
 2. **Filter** — drops articles outside the weekly time window and applies keyword/category rules
 3. **Curate** — sends candidates to Claude, which assigns sections and priority scores (P1–P4), dropping low-relevance items
 4. **Select** — assembles the final edition respecting priority quotas and target size
@@ -66,12 +66,33 @@ cp .env.example .env
 
 The YAML files in `config/` control what gets fetched and how articles are categorised:
 
-- `config/sources.yaml` — RSS feed list; toggle sources on/off with `enabled: true/false`
+- `config/sources.yaml` — news sources (RSS feeds or scraped pages); toggle sources on/off with `enabled: true/false`
 - `config/filter.yaml` — time window and keyword filtering rules
 - `config/sections.yaml` — section definitions, priority tiers, editorial guidance, and selector targets
 - `config/config.yaml` — LLM settings: provider (`anthropic` or `openai`), whether to use the provider's batch API by default, and the model for each AI step (`curator`, `summarizer`, and an optional `wrap_up` that falls back to the summarizer model)
 
 With `provider: openai`, calls go through the Responses API: the tool is sent in strict mode and reasoning effort is set per step in code (`_REASONING_EFFORT` in `src/frankenbote/llm/factory.py`; a step not listed there runs with `none`). Because `max_output_tokens` counts reasoning tokens and the per-step budgets have no room for them, each effort level adds a fixed token headroom (`REASONING_HEADROOM` in `src/frankenbote/llm/openai_client.py`). OpenAI batches have a 24-hour completion window, but the client stops polling and cancels after 60 minutes, as it does for Anthropic. If batches regularly take longer, run with `--batch-off`.
+
+#### Scraped sources
+
+Sites without an RSS feed can be scraped with `type: scrape`. The `url` is then the listing page, and each element matching `scrape.article_selector` (default `article`) becomes one article: title from the first non-empty `h2, h3`, summary from the first non-empty `p`, link from the heading's anchor or the first `<a href>`. Relative links and images are made absolute.
+
+```yaml
+- id: nuernberg_stadtportal
+  name: "Stadt Nürnberg – Stadtportal"
+  url: "https://www.nuernberg.de/internet/stadtportal/index.html"
+  category: municipal
+  type: scrape
+  scrape:
+    article_selector: "article[data-publish]"   # optional, see sources.yaml for all keys
+```
+
+- Items without a link, title or summary are skipped with a warning; a missing date leaves `published` empty (the filter then uses the fetch time, as for feeds).
+- Dates are read from the listing page only: `<time>`, `itemprop="datePublished"`, or an attribute on the article element containing `publish` or `date` (e.g. `data-publish` as a Unix timestamp). ISO 8601, German and English formats and relative dates ("vor 2 Tagen", "5 days ago") are understood.
+- `robots.txt` is honored: a disallowed page, or a `robots.txt` that can't be fetched (network error, 5xx), fails the source like a failed feed download. A missing `robots.txt` (404) allows everything.
+- Requests to the same host are spaced at least one second apart.
+- A scraped source that yields zero articles is reported as failed — usually the site's layout changed and the selectors need updating.
+- Prefer attribute selectors (`article[data-publish]`) over class names, which sites rename more often.
 
 ---
 
@@ -385,7 +406,8 @@ frankenbote/
 ├── src/frankenbote/    # Application source code
 │   ├── cli.py          # Click CLI entry point
 │   ├── body_fetcher.py # Async article text fetching
-│   ├── fetcher.py      # Async RSS fetching
+│   ├── fetcher.py      # Async fetching of all sources (RSS via feedparser)
+│   ├── scraper.py      # Article extraction from HTML pages without a feed
 │   ├── filter.py       # Time-window and keyword filtering
 │   ├── paywall/        # Paywall detection (strategy-based)
 │   │   ├── base.py     # Strategy protocol and shared types
@@ -412,7 +434,7 @@ frankenbote/
 ├── output/             # Final rendered HTML (git-ignored)
 ├── tests/              # pytest test suite
 │   ├── conftest.py     # Shared factory functions
-│   └── fixtures/       # Static test data (sample RSS feed, golden prompts)
+│   └── fixtures/       # Static test data (sample RSS feed, scraped page, golden prompts)
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml

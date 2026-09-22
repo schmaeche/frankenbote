@@ -11,6 +11,9 @@ dependencies = [
     # Pipeline core
     "feedparser>=6.0.11",       # RSS/Atom feed parsing
     "trafilatura>=2.0",         # Article body extraction from HTML pages
+    "beautifulsoup4>=4.12",     # HTML parsing for scraped sources
+    "lxml>=5.0",                # Fast parser backend for BeautifulSoup
+    "python-dateutil>=2.9",     # Flexible date parsing for scraped sources
     "httpx>=0.28.0",            # Modern HTTP client
     "pyyaml>=6.0.2",            # YAML config files
     "python-dotenv>=1.0.1",     # Load .env into environment

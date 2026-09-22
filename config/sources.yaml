@@ -3,13 +3,27 @@
 # Each source needs:
 #   id:       short identifier (lowercase, no spaces — used internally)
 #   name:     human-readable display name
-#   url:      the RSS/Atom feed URL (must be HTTPS unless allow_http: true)
+#   url:      the RSS/Atom feed URL, or the listing page for type: scrape
+#             (must be HTTPS unless allow_http: true)
 #   category: one of: local, municipal, national, tabloid
 #   enabled:  true/false — toggle without deleting (handy for debugging)
 #
 # Optional:
 #   allow_http: true   — allow plain HTTP (only if no HTTPS option exists)
 #   max_articles: 50   — cap how many articles to keep from this feed
+#   type: rss          — rss (default) or scrape
+#
+# Sources without a feed can be scraped from HTML (type: scrape). url is
+# then the listing page; each matching element becomes one article. Items
+# without link, title or summary are skipped; robots.txt is honored. All
+# keys under scrape: are optional (defaults shown):
+#   scrape:
+#     article_selector: "article"   — CSS selector for one teaser
+#     title_selector: "h2, h3"      — inside the teaser, first non-empty match
+#     summary_selector: "p"         — inside the teaser, first non-empty match
+#     link_attr: "href"             — attribute holding the article URL
+# Prefer attribute selectors (article[data-publish]) over class names,
+# which sites rename more often.
 #
 # After editing this file, no rebuild is needed — just re-run `frankenbote fetch`.
 
@@ -65,6 +79,17 @@ sources:
     enabled: true
 
   # ----- Municipal: Stadt Nürnberg -----
+  # No feed for the portal's news cards, so they are scraped. Only cards
+  # carry data-publish; the undated navigation boxes on the page don't.
+  - id: nuernberg_stadtportal
+    name: "Stadt Nürnberg – Stadtportal"
+    url: "https://www.nuernberg.de/internet/stadtportal/index.html"
+    category: municipal
+    enabled: true
+    type: scrape
+    scrape:
+      article_selector: "article[data-publish]"
+
   - id: nuernberg_aktuell
     name: "Stadt Nürnberg – Aktuelle Nachrichten"
     url: "https://go.nuernberg.de/62603295"
