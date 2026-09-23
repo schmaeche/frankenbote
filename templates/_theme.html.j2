@@ -30,26 +30,30 @@
 {%- endmacro %}
 
 {#
-  The dropdown. Rendered hidden and revealed by its own script, which
-  therefore only runs where it can also do its job.
+  The dropdown, placed right below the masthead's rule. Rendered hidden
+  and revealed by its own script, which therefore only runs where it can
+  also do its job. The <div> carries the right alignment so the <label>
+  stays only as wide as its text — clicks beside it don't open the select.
 #}
 {% macro switcher() -%}
-<label class="theme-switcher" hidden>
-    <span class="theme-switcher__label">Ansicht</span>
-    <select class="theme-switcher__select">
-        {% for id, label in themes.items() %}
-        <option value="{{ id }}">{{ label }}</option>
-        {% endfor %}
-    </select>
-</label>
+<div class="theme-switcher" hidden>
+    <label>
+        <span class="theme-switcher__label">Ansicht</span>
+        <select class="theme-switcher__select">
+            {% for id, label in themes.items() %}
+            <option value="{{ id }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+</div>
 <script>
     (function () {
         var key = {{ theme_storage_key | tojson }};
         var root = document.documentElement;
-        var label = document.currentScript.previousElementSibling;
-        var select = label.querySelector("select");
+        var switcher = document.currentScript.previousElementSibling;
+        var select = switcher.querySelector("select");
         select.value = root.dataset.theme;
-        label.hidden = false;
+        switcher.hidden = false;
         select.addEventListener("change", function () {
             root.dataset.theme = select.value;
             try { localStorage.setItem(key, select.value); } catch (e) {}

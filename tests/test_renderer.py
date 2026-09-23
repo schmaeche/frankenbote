@@ -703,13 +703,15 @@ class TestThemes:
             assert f'localStorage.getItem("{THEME_STORAGE_KEY}")' in head
             assert "document.documentElement.dataset.theme" in head
 
-    def test_switcher_is_in_the_masthead_of_both_pages(self):
+    def test_switcher_sits_right_below_the_masthead_on_both_pages(self):
         for html in (
             _render_real_template(_edition_with_articles([make_curated(is_lead=True)])),
             _render_real_index(),
         ):
             masthead = html[html.index('<header class="masthead">'):html.index("</header>")]
-            assert 'class="theme-switcher"' in masthead
+            assert "theme-switcher" not in masthead
+            after_masthead = html[html.index("</header>") + len("</header>"):]
+            assert after_masthead.lstrip().startswith('<div class="theme-switcher" hidden>')
 
     def test_switcher_offers_every_theme_with_its_label(self):
         html = _render_real_index()
@@ -720,9 +722,9 @@ class TestThemes:
         # Without JavaScript the dropdown could not do anything, so it ships
         # hidden and the script right after it un-hides it.
         html = _render_real_index()
-        assert '<label class="theme-switcher" hidden>' in html
-        label_end = html.index("</label>")
-        assert html[label_end + len("</label>"):].lstrip().startswith("<script>")
+        start = html.index('<div class="theme-switcher" hidden>')
+        switcher_end = html.index("</div>", start)
+        assert html[switcher_end + len("</div>"):].lstrip().startswith("<script>")
 
     def test_switcher_persists_the_choice(self):
         html = _render_real_index()

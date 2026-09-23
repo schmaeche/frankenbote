@@ -64,7 +64,6 @@ main {
 
 .masthead {
   display: flex;
-  flex-wrap: wrap;                   /* switcher drops below on narrow screens */
   align-items: center;
   gap: var(--space-md);
   padding-bottom: var(--space-md);
@@ -98,12 +97,15 @@ main {
   margin-top: 0.25rem;
 }
 
-/* Theme dropdown (templates/_theme.html.j2). No display rule here: the
-   label ships with `hidden` and must stay hidden until its script runs. */
+/* Theme dropdown (templates/_theme.html.j2), right-aligned just below the
+   masthead rule. No display rule here: it ships with `hidden` and must stay
+   hidden until its script runs. */
 .theme-switcher {
-  margin-left: auto;
+  text-align: right;
   font-size: 0.78rem;
   color: var(--color-text-muted);
+  margin-top: calc(var(--space-sm) - var(--space-lg));  /* pull up into the masthead's bottom margin */
+  margin-bottom: var(--space-md);
 }
 
 .theme-switcher__label {
