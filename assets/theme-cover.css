@@ -1,8 +1,10 @@
 /* ============================================================
    Frankenbote — "Modern" theme (id: cover)
-   Every article is a full-width image card, headline and teaser
-   laid over the lower part of the image. Clicking the card opens
-   the wrap-up below it (same <details> markup as the classic theme).
+   The articles of a section form one continuous image strip: every
+   card is exactly one image tall, with headline, teaser, meta line
+   and "Weiterlesen" cue laid over its lower part. Clicking the card
+   opens the wrap-up below the image (same <details> markup as the
+   classic theme), pushing the rest of the strip down.
 
    Loaded on every page after style.css; every rule is scoped to
    [data-theme="cover"], so this file is inert until the reader
@@ -11,54 +13,106 @@
 
 [data-theme="cover"] {
   --cover-ratio:       16 / 9;
-  --cover-radius:      0.25rem;
-  --cover-text:        #ffffff;
-  --cover-scrim:       rgba(0, 0, 0, 0.78);
+  --cover-gap:         2px;          /* seam between images of a section */
+  --cover-text:        #fafaf7;
+  --cover-scrim:       #6b6b6bef;
+  --color-bg:          #9b9b9b;
+  --color-text-muted:  #1a1a1a;
+  --color-accent:      #770b0b;
+  --color-accent-bg:   #e0ddd5;
   --cover-scrim-reach: 6rem;         /* how far the scrim fades up above the text */
+  --cover-pad:         var(--space-md);
+  /* Fixed-height rows at the bottom of the card. Fixed so that the meta
+     line, which is not inside the card head (see below), can be placed
+     onto its row by arithmetic alone. */
+  --cover-meta-h:      1.75rem;
+  --cover-cue-h:       1.5rem;
+  --cover-inset:       var(--space-sm);
+
+  --font-display:    var(--font-body);
 }
 
 /* ------------------------------------------------------------
-   Card head: one grid, image and text stacked in the same cells.
+   The strip: no padding, separators or rationale between cards,
+   just a hairline seam.
+   ------------------------------------------------------------ */
 
-   Rows: 1 = free image area above the text, 2 = headline,
-   3 = teaser, 4 = fixed bottom inset, 5 = "Weiterlesen" cue (below
-   the image). The image spans rows 1–4, so the text sits on its
-   lower part whether or not there is a teaser; if the text ever
-   outgrows the image, the rows grow and the image fills them.
+[data-theme="cover"] .section {
+  margin-top: 1rem;
+}
+
+[data-theme="cover"] .section .article,
+[data-theme="cover"] .section .article:first-of-type {
+  position: relative;                /* anchor for the meta line */
+  container-type: inline-size;       /* cqw = card width, for the meta line */
+  padding: 0;
+  border: 0;
+}
+
+[data-theme="cover"] .article + .article {
+  margin-top: var(--cover-gap);
+}
+
+[data-theme="cover"] .article__wrapup-details,
+[data-theme="cover"] .article__head {
+  margin-bottom: 0;
+}
+
+[data-theme="cover"] .article__rationale-details {
+  display: none;
+}
+
+/* ------------------------------------------------------------
+   Card head: exactly one image tall. Image and text share one grid.
+
+   Rows (with wrap-up, <summary>):
+     1 free image area   2 headline   3 teaser
+     4 meta line slot    5 cue        6 bottom inset
+   Without wrap-up (.article__head) there is no cue row.
+
+   overflow: hidden pins the height to the aspect ratio: headline and
+   teaser are clamped, and anything that still does not fit is cut
+   rather than stretching the card and misplacing the meta line.
    ------------------------------------------------------------ */
 
 [data-theme="cover"] .article__disclosure,
 [data-theme="cover"] .article__head {
   display: grid;
   grid-template-columns: 100%;
-  grid-template-rows: 1fr auto auto var(--space-md) auto;
+  aspect-ratio: var(--cover-ratio);
+  overflow: hidden;
 }
 
-/* Neutralise the classic hero/thumb split: every image is the hero. */
+[data-theme="cover"] .article__disclosure {
+  grid-template-rows: 1fr auto auto var(--cover-meta-h) var(--cover-cue-h) var(--cover-inset);
+}
+
+[data-theme="cover"] .article__head {
+  grid-template-rows: 1fr auto auto var(--cover-meta-h) var(--cover-inset);
+}
+
+/* Neutralise the classic hero/thumb split: every image fills the card. */
 [data-theme="cover"] .article-image {
-  grid-row: 1 / 5;
+  grid-row: 1 / -1;
   grid-column: 1;
   z-index: 0;
   float: none;
   width: 100%;
   height: 100%;
-  aspect-ratio: var(--cover-ratio);
   object-fit: cover;
   margin: 0;
-  border-radius: var(--cover-radius);
+  border-radius: 0;
 }
 
-/* Scrim: spans headline, teaser and inset, fading out a little above, so
-   it tracks the height of the text rather than a fixed share of the
-   image. */
+/* Scrim: from the headline to the bottom edge, fading out a little above
+   the headline, so it tracks the height of the text. */
 [data-theme="cover"] .article__disclosure::before,
 [data-theme="cover"] .article__head::before {
   content: "";
-  grid-row: 2 / 5;
+  grid-row: 2 / -1;
   grid-column: 1;
   z-index: 1;
   margin-top: calc(-1 * var(--cover-scrim-reach));
-  border-radius: 0 0 var(--cover-radius) var(--cover-radius);
   background: linear-gradient(
     to top,
     var(--cover-scrim) 0%,
@@ -68,26 +122,40 @@
   pointer-events: none;
 }
 
+[data-theme="cover"] .article__wrapup-cue {
+  grid-column: 1;
+  z-index: 2;
+  padding: 0 var(--cover-pad);
+  text-shadow: 1px 1px 5px var(--cover-scrim);
+  color: var(--color-text-muted);
+}
+
 [data-theme="cover"] .article__title,
 [data-theme="cover"] .article__summary {
   grid-column: 1;
   z-index: 2;
-  padding: 0 var(--space-md);
+  padding: 0 var(--cover-pad);
   color: var(--cover-text);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-[data-theme="cover"] .article__title {
-  grid-row: 2;
-  font-size: 1.25rem;
-  line-height: 1.25;
-  text-wrap: balance;
-  margin: 0 0 var(--space-xs);
+[data-theme="cover"] .article__wrapup-cue:hover {
+  color: var(--color-accent);
 }
 
-/* Beat the classic lead-article rule (.section .article:first-of-type …). */
+/* Headline: clamped to three lines as a safety net for the fixed height.
+   The second selector beats the classic lead-article rule. */
+[data-theme="cover"] .article__title,
 [data-theme="cover"] .section .article:first-of-type .article__title {
+  grid-row: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   font-size: 1.45rem;
+  line-height: 1.25;
+  letter-spacing: normal;
+  text-wrap: balance;
   margin: 0 0 var(--space-xs);
 }
 
@@ -97,8 +165,8 @@
   grid-row: 3;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
   font-size: 0.92rem;
   line-height: 1.5;
@@ -107,34 +175,75 @@
 
 [data-theme="cover"] .article__wrapup-cue {
   grid-row: 5;
-  grid-column: 1;
-  margin-top: var(--space-sm);
-}
-
-[data-theme="cover"] .article__disclosure:hover .article__title {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.15em;
+  margin: 0;
+  line-height: var(--cover-cue-h);
+  opacity: 0.9;
 }
 
 /* ------------------------------------------------------------
-   No image (e.g. RadsportNews): a Frankenrechen-red block of the
-   same proportions carries the headline, so the column stays
-   uniform. The ::before becomes the block instead of a scrim.
+   Meta line (priority, source link, date). It cannot live inside
+   <summary> — a link inside the toggle would fight it — so it stays
+   a sibling in the markup and is positioned onto row 4 of the card:
+   card height (width / ratio) minus the rows below it.
    ------------------------------------------------------------ */
 
-[data-theme="cover"] .article--noimage .article__disclosure::before,
-[data-theme="cover"] .article--noimage .article__head::before {
-  grid-row: 1 / 5;
-  margin-top: 0;
-  aspect-ratio: var(--cover-ratio);
-  border-radius: var(--cover-radius);
+[data-theme="cover"] .article__meta {
+  position: absolute;
+  z-index: 3;                        /* above the card head, so the link is clickable */
+  left: 0;
+  right: 0;
+  top: calc(100cqw / (var(--cover-ratio)) - var(--cover-inset) - var(--cover-cue-h) - var(--cover-meta-h));
+  height: var(--cover-meta-h);
+  padding: 0 var(--cover-pad);
+  flex-wrap: nowrap;
+  overflow: hidden;
+  color: var(--color-text-faint);
+  pointer-events: none;              /* clicks beside the link reach the card */
+}
+
+[data-theme="cover"] .article__meta > * {
+  pointer-events: auto;
+}
+
+/* No wrap-up means no cue row below the meta line. */
+[data-theme="cover"] .article:has(> .article__head) .article__meta {
+  top: calc(100cqw / (var(--cover-ratio)) - var(--cover-inset) - var(--cover-meta-h));
+}
+
+[data-theme="cover"] .article__priority {
+  text-shadow: none;
+}
+
+/* ------------------------------------------------------------
+   No image (e.g. RadsportNews): the card itself becomes a
+   Frankenrechen-red block of the same proportions.
+   ------------------------------------------------------------ */
+
+[data-theme="cover"] .article--noimage .article__disclosure,
+[data-theme="cover"] .article--noimage .article__head {
   background: var(--color-accent);
 }
 
+[data-theme="cover"] .article--noimage .article__disclosure::before,
+[data-theme="cover"] .article--noimage .article__head::before {
+  content: none;
+}
+
 [data-theme="cover"] .article--noimage .article__title,
-[data-theme="cover"] .article--noimage .article__summary {
+[data-theme="cover"] .article--noimage .article__summary,
+[data-theme="cover"] .article--noimage .article__wrapup-cue,
+[data-theme="cover"] .article--noimage .article__meta {
   text-shadow: none;
+}
+
+[data-theme="cover"] .article__wrapup {
+  padding: 0 var(--cover-pad);
+}
+
+[data-theme="cover"] .article__wrapup:last-child {
+  margin-bottom: 1rem;
+  padding-bottom: var(--cover-pad);
+  border-bottom: thin solid var(--color-accent);
 }
 
 /* ------------------------------------------------------------
@@ -146,16 +255,12 @@
   [data-theme="cover"] {
     --cover-ratio: 4 / 3;
     --cover-scrim-reach: 4rem;
+    --cover-pad: var(--space-sm);
   }
 
   [data-theme="cover"] .article__title,
   [data-theme="cover"] .section .article:first-of-type .article__title {
     font-size: 1.1rem;
-  }
-
-  [data-theme="cover"] .article__title,
-  [data-theme="cover"] .article__summary {
-    padding: 0 var(--space-sm);
   }
 
   [data-theme="cover"] .article__summary,
