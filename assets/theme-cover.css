@@ -28,8 +28,6 @@
   --cover-meta-h:      1.75rem;
   --cover-cue-h:       1.5rem;
   --cover-inset:       var(--space-sm);
-
-  --font-display:    var(--font-body);
 }
 
 /* ------------------------------------------------------------
