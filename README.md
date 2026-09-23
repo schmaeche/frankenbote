@@ -14,7 +14,7 @@ The pipeline runs in sequential stages:
 4. **Select** — assembles the final edition respecting priority quotas and target size
 5. **Summarize** — calls Claude again to write a short AI summary for each article
 6. **Wrap-up** *(opt-in)* — generates a longer, multi-paragraph wrap-up for the lead article of each section
-7. **Render** — generates static HTML from Jinja2 templates into `output/`
+7. **Render** — generates static HTML from Jinja2 templates into `output/`. Each page is rendered once; readers pick a theme ("Klassisch" or the image-led "Modern") from a dropdown in the masthead, which swaps a `data-theme` attribute client-side and remembers the choice in `localStorage` — no backend involved. Themes are registered in `renderer.THEMES`; every non-default theme is an `assets/theme-<id>.css` whose rules are all scoped to `[data-theme="<id>"]`
 8. **Publish** — uploads `output/` to a remote web server via SFTP
 
 ---

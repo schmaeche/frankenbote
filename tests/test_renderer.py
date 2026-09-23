@@ -1,9 +1,13 @@
 """Tests for frankenbote.renderer — HTML output with tmp Jinja2 templates."""
 
+import re
 from pathlib import Path
 
 from frankenbote.renderer import (
+    DEFAULT_THEME,
     ERROR_PAGES,
+    THEME_STORAGE_KEY,
+    THEMES,
     RenderConfig,
     _copy_assets,
     _favicon_url,
@@ -12,6 +16,7 @@ from frankenbote.renderer import (
     _make_jinja_env,
     _prune_old_html,
     _render_edition,
+    _render_index,
     _split_paragraphs,
     render_all,
 )
@@ -620,3 +625,128 @@ class TestErrorPages:
         for filename in ERROR_PAGES:
             html = _render_error_page(filename)
             assert '<meta name="robots" content="noindex, nofollow">' in html
+
+
+# ── Themes ───────────────────────────────────────────────────────────────────
+
+REAL_ASSETS_DIR = Path(__file__).parent.parent / "assets"
+NON_DEFAULT_THEMES = [t for t in THEMES if t != DEFAULT_THEME]
+
+
+def _render_real_index() -> str:
+    return _render_index(_make_jinja_env(REAL_TEMPLATES_DIR), [])
+
+
+def _head(html: str) -> str:
+    return html[html.index("<head>"):html.index("</head>")]
+
+
+class TestThemes:
+    def test_default_theme_is_classic(self):
+        assert DEFAULT_THEME == "classic"
+        assert DEFAULT_THEME in THEMES
+
+    def test_every_non_default_theme_ships_a_stylesheet(self):
+        for theme in NON_DEFAULT_THEMES:
+            assert (REAL_ASSETS_DIR / f"theme-{theme}.css").is_file()
+
+    def test_theme_stylesheets_are_copied_to_output(self, tmp_path):
+        dst = tmp_path / "out"
+        dst.mkdir()
+        _copy_assets(REAL_ASSETS_DIR, dst)
+        for theme in NON_DEFAULT_THEMES:
+            assert (dst / f"theme-{theme}.css").is_file()
+
+    def test_theme_stylesheets_are_inert_until_selected(self):
+        # Every theme stylesheet is linked on every page, so every rule in it
+        # must be scoped to its own data-theme — or it leaks into the default.
+        for theme in NON_DEFAULT_THEMES:
+            css = (REAL_ASSETS_DIR / f"theme-{theme}.css").read_text(encoding="utf-8")
+            css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+            selectors = re.findall(r"([^{}]+)\{", css)
+            scope = f'[data-theme="{theme}"]'
+            for selector in selectors:
+                selector = selector.strip()
+                if selector.startswith("@"):
+                    continue
+                for part in selector.split(","):
+                    assert part.strip().startswith(scope), part
+
+    def test_pages_render_the_default_theme_attribute(self):
+        edition_html = _render_real_template(_edition_with_articles([make_curated(is_lead=True)]))
+        for html in (edition_html, _render_real_index()):
+            assert f'<html lang="de" data-theme="{DEFAULT_THEME}">' in html
+
+    def test_edition_links_theme_stylesheets_one_level_up(self):
+        html = _render_real_template(_edition_with_articles([make_curated(is_lead=True)]))
+        for theme in NON_DEFAULT_THEMES:
+            assert f'href="../assets/theme-{theme}.css"' in _head(html)
+
+    def test_index_links_theme_stylesheets_at_root_level(self):
+        html = _render_real_index()
+        for theme in NON_DEFAULT_THEMES:
+            assert f'href="assets/theme-{theme}.css"' in _head(html)
+            assert "../assets/" not in html
+
+    def test_theme_stylesheets_load_after_the_base_stylesheet(self):
+        head = _head(_render_real_index())
+        for theme in NON_DEFAULT_THEMES:
+            assert head.index("assets/style.css") < head.index(f"assets/theme-{theme}.css")
+
+    def test_stored_theme_is_applied_in_head_before_first_paint(self):
+        for html in (
+            _render_real_template(_edition_with_articles([make_curated(is_lead=True)])),
+            _render_real_index(),
+        ):
+            head = _head(html)
+            assert "<script>" in head
+            assert f'localStorage.getItem("{THEME_STORAGE_KEY}")' in head
+            assert "document.documentElement.dataset.theme" in head
+
+    def test_switcher_is_in_the_masthead_of_both_pages(self):
+        for html in (
+            _render_real_template(_edition_with_articles([make_curated(is_lead=True)])),
+            _render_real_index(),
+        ):
+            masthead = html[html.index('<header class="masthead">'):html.index("</header>")]
+            assert 'class="theme-switcher"' in masthead
+
+    def test_switcher_offers_every_theme_with_its_label(self):
+        html = _render_real_index()
+        for theme, label in THEMES.items():
+            assert f'<option value="{theme}">{label}</option>' in html
+
+    def test_switcher_is_hidden_until_its_script_reveals_it(self):
+        # Without JavaScript the dropdown could not do anything, so it ships
+        # hidden and the script right after it un-hides it.
+        html = _render_real_index()
+        assert '<label class="theme-switcher" hidden>' in html
+        label_end = html.index("</label>")
+        assert html[label_end + len("</label>"):].lstrip().startswith("<script>")
+
+    def test_switcher_persists_the_choice(self):
+        html = _render_real_index()
+        assert f'var key = "{THEME_STORAGE_KEY}";' in html
+        assert "localStorage.setItem(key, select.value)" in html
+
+    def test_imageless_article_is_marked_for_the_theme_fallback(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert '<article class="article article--noimage">' in html
+
+    def test_article_with_image_is_not_marked_imageless(self):
+        lead = make_curated(
+            is_lead=True,
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert '<article class="article">' in html
+        assert "article--noimage" not in html
+
+    def test_error_pages_have_no_theme_switcher(self):
+        # Error pages must work without CSS and use root-absolute paths; they
+        # stay in the default look on purpose.
+        for filename in ERROR_PAGES:
+            html = _render_error_page(filename)
+            assert "theme-switcher" not in html
+            assert "theme-" not in _head(html)

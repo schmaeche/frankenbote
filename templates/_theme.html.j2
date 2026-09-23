@@ -1,0 +1,70 @@
+{#
+  Theme plumbing shared by edition.html.j2 and index.html.j2. Imported, not
+  rendered on its own. The theme list, default and storage key come from
+  renderer.THEMES / DEFAULT_THEME / THEME_STORAGE_KEY (Jinja globals), so
+  the pages cannot disagree about which themes exist.
+
+  Everything here runs in the reader's browser — no backend involved. With
+  JavaScript disabled the page stays in the default theme and the switcher
+  stays hidden rather than showing a control that does nothing.
+#}
+
+{#
+  Stylesheets for every non-default theme, plus the script that applies the
+  stored choice. It must run in <head>, before <body> is parsed, so the
+  first paint is already in the right theme — no flash of the default.
+  `assets` is the HTML-relative path to the assets directory.
+#}
+{% macro head(assets) -%}
+{% for id in themes if id != default_theme %}
+<link rel="stylesheet" href="{{ assets }}theme-{{ id }}.css">
+{% endfor %}
+<script>
+    try {
+        var storedTheme = localStorage.getItem({{ theme_storage_key | tojson }});
+        if ({{ themes | list | tojson }}.includes(storedTheme)) {
+            document.documentElement.dataset.theme = storedTheme;
+        }
+    } catch (e) {}  /* storage blocked (privacy mode): keep the default */
+</script>
+{%- endmacro %}
+
+{#
+  The dropdown. Rendered hidden and revealed by its own script, which
+  therefore only runs where it can also do its job.
+#}
+{% macro switcher() -%}
+<label class="theme-switcher" hidden>
+    <span class="theme-switcher__label">Ansicht</span>
+    <select class="theme-switcher__select">
+        {% for id, label in themes.items() %}
+        <option value="{{ id }}">{{ label }}</option>
+        {% endfor %}
+    </select>
+</label>
+<script>
+    (function () {
+        var key = {{ theme_storage_key | tojson }};
+        var root = document.documentElement;
+        var label = document.currentScript.previousElementSibling;
+        var select = label.querySelector("select");
+        select.value = root.dataset.theme;
+        label.hidden = false;
+        select.addEventListener("change", function () {
+            root.dataset.theme = select.value;
+            try { localStorage.setItem(key, select.value); } catch (e) {}
+        });
+        // Back/forward cache restores the page as it was — re-sync in case
+        // the theme was changed on another page in the meantime.
+        window.addEventListener("pageshow", function (event) {
+            if (!event.persisted) return;
+            var stored = null;
+            try { stored = localStorage.getItem(key); } catch (e) {}
+            if (stored && select.querySelector('option[value="' + stored + '"]')) {
+                root.dataset.theme = stored;
+                select.value = stored;
+            }
+        });
+    })();
+</script>
+{%- endmacro %}

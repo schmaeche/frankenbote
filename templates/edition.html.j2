@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-theme="{{ default_theme }}">
+{% import "_theme.html.j2" as theme %}
 {#
   The card head — image, headline, teaser — is shared between the
   expandable and the non-expandable article layouts, so it lives in a macro.
@@ -26,6 +27,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:wght@500;600;700&display=swap">
     <link rel="stylesheet" href="../assets/style.css">
+    {{ theme.head("../assets/") }}
     <link rel="icon" type="image/svg+xml" href="../assets/frankenrechen.svg">
 </head>
 <body>
@@ -46,6 +48,7 @@
                 </span>
             </h1>
         </div>
+        {{ theme.switcher() }}
     </header>
 
     {% for section in edition.sections %}
@@ -53,7 +56,9 @@
         <h2 class="section__title">{{ section.display_name }}</h2>
 
         {% for item in section.articles %}
-        <article class="article">
+        {# article--noimage lets a theme that is built around the image (cover)
+           draw a stand-in block; the classic theme ignores it. #}
+        <article class="article{% if not item.article.image_url %} article--noimage{% endif %}">
             {% if item.wrap_up %}
             {# Image, headline and teaser are all inside <summary>, so any of
                them toggles the wrap-up. The source link lives in the meta

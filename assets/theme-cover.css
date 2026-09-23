@@ -1,0 +1,167 @@
+/* ============================================================
+   Frankenbote — "Modern" theme (id: cover)
+   Every article is a full-width image card, headline and teaser
+   laid over the lower part of the image. Clicking the card opens
+   the wrap-up below it (same <details> markup as the classic theme).
+
+   Loaded on every page after style.css; every rule is scoped to
+   [data-theme="cover"], so this file is inert until the reader
+   picks the theme (see templates/_theme.html.j2).
+   ============================================================ */
+
+[data-theme="cover"] {
+  --cover-ratio:       16 / 9;
+  --cover-radius:      0.25rem;
+  --cover-text:        #ffffff;
+  --cover-scrim:       rgba(0, 0, 0, 0.78);
+  --cover-scrim-reach: 6rem;         /* how far the scrim fades up above the text */
+}
+
+/* ------------------------------------------------------------
+   Card head: one grid, image and text stacked in the same cells.
+
+   Rows: 1 = free image area above the text, 2 = headline,
+   3 = teaser, 4 = fixed bottom inset, 5 = "Weiterlesen" cue (below
+   the image). The image spans rows 1–4, so the text sits on its
+   lower part whether or not there is a teaser; if the text ever
+   outgrows the image, the rows grow and the image fills them.
+   ------------------------------------------------------------ */
+
+[data-theme="cover"] .article__disclosure,
+[data-theme="cover"] .article__head {
+  display: grid;
+  grid-template-columns: 100%;
+  grid-template-rows: 1fr auto auto var(--space-md) auto;
+}
+
+/* Neutralise the classic hero/thumb split: every image is the hero. */
+[data-theme="cover"] .article-image {
+  grid-row: 1 / 5;
+  grid-column: 1;
+  z-index: 0;
+  float: none;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: var(--cover-ratio);
+  object-fit: cover;
+  margin: 0;
+  border-radius: var(--cover-radius);
+}
+
+/* Scrim: spans headline, teaser and inset, fading out a little above, so
+   it tracks the height of the text rather than a fixed share of the
+   image. */
+[data-theme="cover"] .article__disclosure::before,
+[data-theme="cover"] .article__head::before {
+  content: "";
+  grid-row: 2 / 5;
+  grid-column: 1;
+  z-index: 1;
+  margin-top: calc(-1 * var(--cover-scrim-reach));
+  border-radius: 0 0 var(--cover-radius) var(--cover-radius);
+  background: linear-gradient(
+    to top,
+    var(--cover-scrim) 0%,
+    var(--cover-scrim) calc(100% - var(--cover-scrim-reach)),
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+[data-theme="cover"] .article__title,
+[data-theme="cover"] .article__summary {
+  grid-column: 1;
+  z-index: 2;
+  padding: 0 var(--space-md);
+  color: var(--cover-text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="cover"] .article__title {
+  grid-row: 2;
+  font-size: 1.25rem;
+  line-height: 1.25;
+  text-wrap: balance;
+  margin: 0 0 var(--space-xs);
+}
+
+/* Beat the classic lead-article rule (.section .article:first-of-type …). */
+[data-theme="cover"] .section .article:first-of-type .article__title {
+  font-size: 1.45rem;
+  margin: 0 0 var(--space-xs);
+}
+
+/* Teaser clamped to three lines; the full story is in the wrap-up. */
+[data-theme="cover"] .article__summary,
+[data-theme="cover"] .section .article:first-of-type .article__summary {
+  grid-row: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+[data-theme="cover"] .article__wrapup-cue {
+  grid-row: 5;
+  grid-column: 1;
+  margin-top: var(--space-sm);
+}
+
+[data-theme="cover"] .article__disclosure:hover .article__title {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+/* ------------------------------------------------------------
+   No image (e.g. RadsportNews): a Frankenrechen-red block of the
+   same proportions carries the headline, so the column stays
+   uniform. The ::before becomes the block instead of a scrim.
+   ------------------------------------------------------------ */
+
+[data-theme="cover"] .article--noimage .article__disclosure::before,
+[data-theme="cover"] .article--noimage .article__head::before {
+  grid-row: 1 / 5;
+  margin-top: 0;
+  aspect-ratio: var(--cover-ratio);
+  border-radius: var(--cover-radius);
+  background: var(--color-accent);
+}
+
+[data-theme="cover"] .article--noimage .article__title,
+[data-theme="cover"] .article--noimage .article__summary {
+  text-shadow: none;
+}
+
+/* ------------------------------------------------------------
+   Narrow screens: taller ratio so the overlay leaves some image
+   visible, smaller type, two-line teaser.
+   ------------------------------------------------------------ */
+
+@media (max-width: 30rem) {
+  [data-theme="cover"] {
+    --cover-ratio: 4 / 3;
+    --cover-scrim-reach: 4rem;
+  }
+
+  [data-theme="cover"] .article__title,
+  [data-theme="cover"] .section .article:first-of-type .article__title {
+    font-size: 1.1rem;
+  }
+
+  [data-theme="cover"] .article__title,
+  [data-theme="cover"] .article__summary {
+    padding: 0 var(--space-sm);
+  }
+
+  [data-theme="cover"] .article__summary,
+  [data-theme="cover"] .section .article:first-of-type .article__summary {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    font-size: 0.88rem;
+  }
+}

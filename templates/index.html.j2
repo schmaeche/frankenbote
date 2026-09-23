@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-theme="{{ default_theme }}">
+{% import "_theme.html.j2" as theme %}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:wght@500;600;700&display=swap">
     <link rel="stylesheet" href="assets/style.css">
+    {{ theme.head("assets/") }}
     <link rel="icon" type="image/svg+xml" href="assets/frankenrechen.svg">
 </head>
 <body>
@@ -25,6 +27,7 @@
                 <span class="masthead__subtitle">Archiv</span>
             </h1>
         </div>
+        {{ theme.switcher() }}
     </header>
 
     <section class="archive">

@@ -64,6 +64,7 @@ main {
 
 .masthead {
   display: flex;
+  flex-wrap: wrap;                   /* switcher drops below on narrow screens */
   align-items: center;
   gap: var(--space-md);
   padding-bottom: var(--space-md);
@@ -95,6 +96,33 @@ main {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   margin-top: 0.25rem;
+}
+
+/* Theme dropdown (templates/_theme.html.j2). No display rule here: the
+   label ships with `hidden` and must stay hidden until its script runs. */
+.theme-switcher {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.theme-switcher__label {
+  margin-right: var(--space-xs);
+}
+
+.theme-switcher__select {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.2rem;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+}
+
+.theme-switcher__select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 /* ============================================================
@@ -439,6 +467,7 @@ main {
 
 @media print {
   body { background: white; color: black; }
+  .theme-switcher { display: none; }
   .article__priority { background: none; border: 1px solid #999; }
   .article__rationale { display: none; }
   a { color: black; text-decoration: underline; }

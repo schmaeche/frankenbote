@@ -10,8 +10,8 @@ Writes (to output/):
   - index.html                    (archive listing the last N editions)
   - error.html                    (catch-all web-server error page)
   - error-401.html                (Basic Auth failure page)
-  - assets/style.css              (copy of source asset)
-  - assets/frankenrechen.svg      (copy of source asset)
+  - assets/*                      (copies of every source asset — style.css,
+                                   theme-*.css, frankenrechen.svg)
 
 Retention: only the most recent N editions are written; older HTML files
 in the output directory are removed. The data/editions/*.json files are
@@ -39,6 +39,21 @@ DEFAULT_TEMPLATES_DIR = Path("templates")
 DEFAULT_ASSETS_DIR = Path("assets")
 DEFAULT_OUTPUT_DIR = Path("output")
 DEFAULT_RETENTION = 5
+
+
+# ---------- Themes ----------
+
+# Reader-selectable themes: id -> dropdown label. Every edition is rendered
+# once; the theme is a data-theme attribute on <html>, switched client-side
+# and remembered in localStorage under THEME_STORAGE_KEY. Each theme other
+# than the default is a stylesheet assets/theme-<id>.css whose rules are all
+# scoped to [data-theme="<id>"], so linking it is harmless while inactive.
+THEMES: dict[str, str] = {
+    "classic": "Klassisch",
+    "cover": "Modern",
+}
+DEFAULT_THEME = "classic"
+THEME_STORAGE_KEY = "frankenbote-theme"
 
 
 # ---------- Error pages ----------
@@ -183,6 +198,9 @@ def _make_jinja_env(templates_dir: Path) -> Environment:
     env.filters["calendar_week"] = lambda iso_date: datetime.fromisoformat(iso_date).strftime("%V/%y")
     env.filters["paragraphs"] = _split_paragraphs
     env.filters["favicon_url"] = _favicon_url
+    env.globals["themes"] = THEMES
+    env.globals["default_theme"] = DEFAULT_THEME
+    env.globals["theme_storage_key"] = THEME_STORAGE_KEY
     return env
 
 
