@@ -15,7 +15,7 @@
   --cover-ratio:       16 / 9;
   --cover-gap:         2px;          /* seam between images of a section */
   --cover-text:        #fafaf7;
-  --cover-scrim:       #6b6b6bef;
+  --cover-scrim:       #6b6b6bd7;
   --color-bg:          #9b9b9b;
   --color-text-muted:  #1a1a1a;
   --color-accent:      #770b0b;
@@ -219,7 +219,14 @@
 
 [data-theme="cover"] .article--noimage .article__disclosure,
 [data-theme="cover"] .article--noimage .article__head {
-  background: var(--color-accent);
+  
+  background: linear-gradient(
+    to top,
+    var(--cover-scrim) 0%,
+    var(--color-accent) calc(100% - var(--cover-scrim-reach)),
+    var(--color-accent) 100%, 
+    transparent 100%
+  );
 }
 
 [data-theme="cover"] .article--noimage .article__disclosure::before,
