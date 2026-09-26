@@ -5,7 +5,8 @@ For each kept article, the summarizer reads:
   - the article title
   - the feed-provided summary (which may be empty, HTML-laden, or junk)
 
-and produces a clean German summary. The summarizer NEVER fetches article
+and produces a clean German summary plus a headline in the same voice
+(the original title stays on the Article). The summarizer NEVER fetches article
 bodies from the publisher for that — it works only with what the feed
 provided. Wrap-ups (opt-in) are the exception: they fetch the full body.
 
@@ -31,8 +32,9 @@ from frankenbote.models import CuratedArticle, Edition
 def summarize_edition(edition: Edition, client: LLMClient) -> Edition:
     """Run the summarizer on every article in the edition.
 
-    Returns a new Edition with ai_summary populated on each CuratedArticle.
-    Articles where the LLM judged the input too thin keep ai_summary=None.
+    Returns a new Edition with ai_title and ai_summary populated on each
+    CuratedArticle. Where the LLM judged the input too thin, the field stays
+    None and the renderer falls back to the feed's own title / summary.
     Raises RuntimeError on persistent failure; the client retries once and
     saves debug context to disk.
     """
@@ -51,16 +53,19 @@ def summarize_edition(edition: Edition, client: LLMClient) -> Edition:
     def announce(_attempt: int) -> None:
         click.echo(f"\nSummarizing {len(flat)} articles… ({call_desc})")
 
-    summaries = client.run_task(SUMMARIZER_TASK, flat, on_attempt=announce).values
+    results = client.run_task(SUMMARIZER_TASK, flat, on_attempt=announce).values
 
-    # Build a new edition with ai_summary populated.
+    # Build a new edition with ai_title and ai_summary populated.
     new_sections = []
     flat_idx = 0
     for section in edition.sections:
         new_articles = []
         for item in section.articles:
+            result = results[flat_idx]
             new_articles.append(
-                item.model_copy(update={"ai_summary": summaries[flat_idx]})
+                item.model_copy(
+                    update={"ai_title": result.ai_title, "ai_summary": result.summary}
+                )
             )
             flat_idx += 1
         new_sections.append(section.model_copy(update={"articles": new_articles}))

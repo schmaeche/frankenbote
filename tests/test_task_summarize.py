@@ -27,18 +27,22 @@ class TestIdentity:
         assert SUMMARIZER_TASK.tool_name == "submit_summaries"
         assert "submit_summaries" in SUMMARIZER_TASK.system_prompt
         assert "UNVERTRAUTE" in SUMMARIZER_TASK.system_prompt
+        assert "ÜBERSCHRIFT" in SUMMARIZER_TASK.system_prompt
+        assert "ai_title" in SUMMARIZER_TASK.system_prompt
 
     def test_schema(self):
         schema = SUMMARIZER_TASK.tool["input_schema"]
         assert schema["required"] == ["summaries"]
         assert schema["additionalProperties"] is False
         item = schema["$defs"]["SummaryDecision"]
-        assert item["required"] == ["article_index", "summary"]
+        assert item["required"] == ["article_index", "ai_title", "summary"]
         assert item["properties"]["article_index"] == {"minimum": 0, "type": "integer"}
         assert {"type": "null"} in item["properties"]["summary"]["anyOf"]
+        assert {"type": "string"} in item["properties"]["ai_title"]["anyOf"]
+        assert {"type": "null"} in item["properties"]["ai_title"]["anyOf"]
 
     def test_max_tokens_formula(self):
-        assert SUMMARIZER_TASK.max_tokens_for(1) == 320
+        assert SUMMARIZER_TASK.max_tokens_for(1) == 350
         assert SUMMARIZER_TASK.max_tokens_for(1_000_000) == 48000
 
 
@@ -47,20 +51,29 @@ class TestIdentity:
 class TestParse:
     def test_null_summary_accepted(self):
         resp = SUMMARIZER_TASK.parse(
-            {"summaries": [{"article_index": 0, "summary": None}]}
+            {"summaries": [{"article_index": 0, "ai_title": None, "summary": None}]}
         )
         assert isinstance(resp, SummarizerResponse)
         assert resp.summaries[0].summary is None
+        assert resp.summaries[0].ai_title is None
+
+    def test_missing_ai_title_raises(self):
+        """Required, not defaulted: the model must decide, and OpenAI strict
+        mode needs every property required."""
+        with pytest.raises(ValidationError):
+            SUMMARIZER_TASK.parse({"summaries": [{"article_index": 0, "summary": "S."}]})
 
     def test_normalises_json_string(self):
         resp = SUMMARIZER_TASK.parse(
-            {"summaries": '[{"article_index": 2, "summary": "S."}]'}
+            {"summaries": '[{"article_index": 2, "ai_title": "T", "summary": "S."}]'}
         )
         assert resp.summaries[0].article_index == 2
 
     def test_bad_index_raises(self):
         with pytest.raises(ValidationError):
-            SUMMARIZER_TASK.parse({"summaries": [{"article_index": "x", "summary": 1}]})
+            SUMMARIZER_TASK.parse(
+                {"summaries": [{"article_index": "x", "ai_title": "T", "summary": 1}]}
+            )
 
 
 # ── render: inputs → prompt ──────────────────────────────────────────────────
@@ -121,31 +134,44 @@ class TestRender:
 
 class TestInterpret:
     def _interpret(self, n_articles: int, summaries: list[dict]):
-        return SUMMARIZER_TASK.interpret(
+        outcome = SUMMARIZER_TASK.interpret(
             SUMMARIZER_TASK.parse({"summaries": summaries}), _articles(n_articles)
         )
+        return [(d.ai_title, d.summary) for d in outcome.values], outcome.notes
 
-    def test_summaries_land_on_their_own_article(self):
-        outcome = self._interpret(
+    def test_results_land_on_their_own_article(self):
+        values, notes = self._interpret(
             3,
             [
-                {"article_index": 2, "summary": "Drei."},
-                {"article_index": 0, "summary": "Eins."},
-                {"article_index": 1, "summary": None},
+                {"article_index": 2, "ai_title": "T3", "summary": "Drei."},
+                {"article_index": 0, "ai_title": "T1", "summary": "Eins."},
+                {"article_index": 1, "ai_title": "T2", "summary": None},
             ],
         )
-        assert outcome.values == ["Eins.", None, "Drei."]
-        assert outcome.notes == []
+        assert values == [("T1", "Eins."), ("T2", None), ("T3", "Drei.")]
+        assert notes == []
 
     def test_output_length_equals_input_length(self):
-        outcome = self._interpret(4, [{"article_index": 0, "summary": "S."}])
-        assert outcome.values == ["S.", None, None, None]
+        values, _ = self._interpret(
+            4, [{"article_index": 0, "ai_title": "T", "summary": "S."}]
+        )
+        assert values == [("T", "S."), (None, None), (None, None), (None, None)]
 
-    def test_null_and_missing_are_both_no_summary(self):
-        outcome = self._interpret(2, [{"article_index": 0, "summary": None}])
-        assert outcome.values == [None, None]
-        assert outcome.notes == []
+    def test_null_and_missing_are_both_no_result(self):
+        values, notes = self._interpret(
+            2, [{"article_index": 0, "ai_title": None, "summary": None}]
+        )
+        assert values == [(None, None), (None, None)]
+        assert notes == []
+
+    def test_headline_without_summary_is_kept(self):
+        values, _ = self._interpret(
+            1, [{"article_index": 0, "ai_title": "Nur Titel", "summary": None}]
+        )
+        assert values == [("Nur Titel", None)]
 
     def test_out_of_range_index_is_dropped(self):
-        outcome = self._interpret(1, [{"article_index": 9, "summary": "S."}])
-        assert outcome.values == [None]
+        values, _ = self._interpret(
+            1, [{"article_index": 9, "ai_title": "T", "summary": "S."}]
+        )
+        assert values == [(None, None)]

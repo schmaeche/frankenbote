@@ -135,9 +135,9 @@ class TestSummarizeEdition:
              make_curated(article=make_article(link="https://e.com/3"))],
         )
         client = ScriptedLLMClient([[tool_result("summarizer", {"summaries": [
-            {"article_index": 0, "summary": "Eins."},
-            {"article_index": 1, "summary": None},
-            {"article_index": 2, "summary": "Drei."},
+            {"article_index": 0, "ai_title": "Titel eins", "summary": "Eins."},
+            {"article_index": 1, "ai_title": None, "summary": None},
+            {"article_index": 2, "ai_title": "Titel drei", "summary": "Drei."},
         ]})]])
 
         out = summarize_edition(edition, client)
@@ -145,19 +145,25 @@ class TestSummarizeEdition:
         assert out.sections[0].articles[0].ai_summary == "Eins."
         assert out.sections[1].articles[0].ai_summary is None
         assert out.sections[1].articles[1].ai_summary == "Drei."
+        assert out.sections[0].articles[0].ai_title == "Titel eins"
+        assert out.sections[1].articles[0].ai_title is None
+        assert out.sections[1].articles[1].ai_title == "Titel drei"
+        # The RSS title is kept alongside.
+        assert out.sections[0].articles[0].article.title == "Test Article"
         # Input edition untouched.
         assert edition.sections[0].articles[0].ai_summary is None
+        assert edition.sections[0].articles[0].ai_title is None
         [request] = client.calls[0][1]
         assert request["task"] == "summarizer"
         assert request["custom_id"] == "summarizer"
         assert "model" not in request["params"]
         assert request["params"]["tool"]["name"] == "submit_summaries"
-        assert request["params"]["max_tokens"] == 200 + 120 * 3
+        assert request["params"]["max_tokens"] == 200 + 150 * 3
 
     def test_client_batch_off_uses_sync_call(self):
         edition = _make_edition([make_curated()])
         client = ScriptedLLMClient([tool_result("summarizer", {"summaries": [
-            {"article_index": 0, "summary": "S."}]})], use_batch=False)
+            {"article_index": 0, "ai_title": "T", "summary": "S."}]})], use_batch=False)
         summarize_edition(edition, client)
         assert [n for n, _ in client.calls] == ["call_tool"]
 
@@ -165,7 +171,7 @@ class TestSummarizeEdition:
         edition = _make_edition([make_curated()])
         client = ScriptedLLMClient([
             LLMTransientError("net"),
-            tool_result("summarizer", {"summaries": [{"article_index": 0, "summary": "S."}]}),
+            tool_result("summarizer", {"summaries": [{"article_index": 0, "ai_title": "T", "summary": "S."}]}),
         ], use_batch=False)
         out = summarize_edition(edition, client)
         assert out.sections[0].articles[0].ai_summary == "S."
@@ -173,7 +179,7 @@ class TestSummarizeEdition:
     def test_summaries_as_json_string_are_normalised(self):
         edition = _make_edition([make_curated()])
         client = ScriptedLLMClient([tool_result(
-            "summarizer", {"summaries": '[{"article_index": 0, "summary": "S."}]'}
+            "summarizer", {"summaries": '[{"article_index": 0, "ai_title": "T", "summary": "S."}]'}
         )], use_batch=False)
         assert summarize_edition(edition, client).sections[0].articles[0].ai_summary == "S."
 

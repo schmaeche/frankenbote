@@ -435,6 +435,22 @@ class TestFaviconUrl:
         assert _favicon_url("https://[::1/artikel") is None
 
 
+class TestHeadlineSource:
+    def _headline(self, html: str) -> str:
+        start = html.index('<h3 class="article__title">') + len('<h3 class="article__title">')
+        return html[start:html.index("</h3>", start)]
+
+    def test_ai_title_replaces_the_rss_title(self):
+        item = make_curated(ai_title="Stadtrat billigt Haushalt 2027")
+        html = _render_real_template(_edition_with_articles([item]))
+        assert self._headline(html) == "Stadtrat billigt Haushalt 2027"
+        assert "Test Article" not in html
+
+    def test_missing_ai_title_falls_back_to_the_rss_title(self):
+        html = _render_real_template(_edition_with_articles([make_curated()]))
+        assert self._headline(html) == "Test Article"
+
+
 class TestHeadlineDisclosure:
     def test_headline_is_not_linked_to_the_source(self):
         lead = make_curated(is_lead=True, wrap_up="Der Absatz.")

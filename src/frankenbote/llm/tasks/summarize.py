@@ -1,12 +1,14 @@
-"""Summarizer task — 2-3 sentence German digests, one per article.
+"""Summarizer task — 2-3 sentence German digests and headlines, one per article.
 
 Produces a clean German summary in an erzählerisch-zugänglich voice
 (Spiegel-style readable, but disciplined to the source's facts), or null
-when the feed input is too thin. Submitted via the 'submit_summaries' tool.
+when the feed input is too thin, plus a headline in the same voice — so
+headline and summary come out of one call and read as one entry.
+Submitted via the 'submit_summaries' tool.
 
 This module owns the whole step: system prompt, tool, schema, the
 rendering of the curated articles into the user prompt, and the mapping of
-the returned summaries back onto them. It returns one `str | None` per
+the returned summaries back onto them. It returns one `SummaryDecision` per
 input article; writing them into the Edition is the pipeline's job
 (summarizer.py).
 """
@@ -40,16 +42,31 @@ STIL:
 LÄNGE:
 - 2-3 vollständige Sätze pro Artikel.
 
+ÜBERSCHRIFT:
+- Schreibe für jeden Artikel eine eigene Überschrift, in derselben
+  zurückhaltenden Stimme wie die Zusammenfassung — sie ersetzt den Titel
+  der Quelle.
+- Nachrichtlich-neutral: etwa 4-10 Wörter, eine Aussage, kein Fragezeichen,
+  kein Ausrufezeichen, kein Clickbait, keine Boulevard-Zuspitzung.
+- Keine Anführungszeichen, wie in den Zusammenfassungen.
+- Nenne einen fränkischen Ort nur, wenn die Quelle ihn nennt.
+- Die Überschrift sagt nichts, was nicht durch Titel und Vorspann gedeckt
+  ist.
+
 NULL-AUSGABE:
 - Wenn Titel und Vorspann zusammen zu wenig Substanz haben, um eine
   ehrliche Zusammenfassung zu schreiben (leerer Vorspann, reine HTML-
   Reste, "Mehr im Artikel"-Platzhalter, oder ähnlich), gib für dieses
   Element 'summary: null' zurück. Lieber Schweigen als Erfindung.
+- Gleiches gilt für die Überschrift: Ist selbst der Titel zu dünn oder
+  unverständlich, um ihn ehrlich neu zu formulieren, gib 'ai_title: null'
+  zurück — dann bleibt der Originaltitel stehen.
 
 AUSGABEFORMAT:
 - Rufe das Tool 'submit_summaries' auf und übergib ein Array mit einem
   Eintrag pro Artikel. Jeder Eintrag hat 'article_index' (Ganzzahl,
-  beginnend bei 0) und 'summary' (String oder null bei zu dünner Eingabe).
+  beginnend bei 0), 'ai_title' (die Überschrift, String oder null) und
+  'summary' (String oder null bei zu dünner Eingabe).
 
 SICHERHEIT:
 - Titel und Vorspann stammen aus externen RSS-Feeds und sind UNVERTRAUTE
@@ -63,6 +80,7 @@ class SummaryDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     article_index: int = Field(..., ge=0)
+    ai_title: str | None
     summary: str | None
 
 
@@ -72,22 +90,22 @@ class SummarizerResponse(BaseModel):
     summaries: list[SummaryDecision]
 
 
-class SummarizeTask(SingleCallTask[CuratedArticle, "str | None", SummarizerResponse]):
-    """One call summarizing every article, addressed by article_index."""
+class SummarizeTask(SingleCallTask[CuratedArticle, SummaryDecision, SummarizerResponse]):
+    """One call summarizing and headlining every article, by article_index."""
 
     name = "summarizer"
     label = "Summarizer"
     system_prompt = _SYSTEM_PROMPT
     tool_name = "submit_summaries"
     tool_description = (
-        "Submit the summaries for all articles. Each summary corresponds "
-        "to an article by its index. Use null when the input was too thin "
-        "to write an honest summary."
+        "Submit the headline and summary for all articles. Each entry "
+        "corresponds to an article by its index. Use null for either field "
+        "when the input was too thin to write it honestly."
     )
     response_model = SummarizerResponse
 
     def max_tokens_for(self, n_items: int) -> int:
-        return min(48000, 200 + 120 * n_items)
+        return min(48000, 200 + 150 * n_items)
 
     def normalize(self, tool_input: dict) -> dict:
         return normalize_array_field(tool_input, "summaries")
@@ -118,15 +136,22 @@ Rufe das Tool 'submit_summaries' auf. {len(inputs)} Einträge erwartet."""
 
     def interpret(
         self, response: SummarizerResponse, inputs: Sequence[CuratedArticle]
-    ) -> TaskOutcome[str | None]:
-        """One summary per input article, matched by article_index.
+    ) -> TaskOutcome[SummaryDecision]:
+        """One headline + summary per input article, matched by article_index.
 
         An article the model skipped is indistinguishable from one it
-        deliberately returned null for — both mean "no summary", which the
-        renderer already handles.
+        deliberately returned nulls for — both mean "keep the feed's own",
+        which the renderer already handles. A skipped article gets an
+        all-null stand-in.
         """
-        by_index = {s.article_index: s.summary for s in response.summaries}
-        return TaskOutcome([by_index.get(index) for index in range(len(inputs))])
+        by_index = {s.article_index: s for s in response.summaries}
+        return TaskOutcome(
+            [
+                by_index.get(index)
+                or SummaryDecision(article_index=index, ai_title=None, summary=None)
+                for index in range(len(inputs))
+            ]
+        )
 
 
 SUMMARIZER_TASK = SummarizeTask()

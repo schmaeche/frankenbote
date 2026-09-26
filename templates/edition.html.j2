@@ -11,7 +11,7 @@
 {% if item.article.image_url %}
 <img class="article-image article-image--{{ 'hero' if item.is_lead else 'thumb' }}" src="{{ item.article.image_url }}" alt="" loading="lazy">
 {% endif %}
-<h3 class="article__title">{{ item.article.title }}</h3>
+<h3 class="article__title">{{ item.ai_title or item.article.title }}</h3>
 {% if item.ai_summary %}
 <span class="article__summary">{{ item.ai_summary }}</span>
 {% elif item.article.summary %}

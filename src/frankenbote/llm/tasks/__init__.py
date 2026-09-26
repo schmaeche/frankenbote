@@ -12,6 +12,7 @@ from frankenbote.llm.tasks.summarize import (
     SUMMARIZER_TASK,
     SummarizerResponse,
     SummarizeTask,
+    SummaryDecision,
 )
 from frankenbote.llm.tasks.wrap_up import (
     WRAP_UP_TASK,
@@ -26,6 +27,7 @@ __all__ = [
     "CurateTask",
     "SummarizeTask",
     "SummarizerResponse",
+    "SummaryDecision",
     "WrapUpItem",
     "WrapUpResponse",
     "WrapUpTask",

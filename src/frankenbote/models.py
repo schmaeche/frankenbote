@@ -100,6 +100,7 @@ class CuratedArticle(BaseModel):
     relevance_score: float = Field(..., ge=0.0, le=10.0)
     rationale: str = Field(..., max_length=300)
     is_lead: bool = False
+    ai_title: str | None = None  # summarizer's headline; article.title stays the RSS original
     ai_summary: str | None = None
     wrap_up: str | None = None
 
