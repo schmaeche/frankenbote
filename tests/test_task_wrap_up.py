@@ -17,7 +17,19 @@ _ARTICLE = make_curated(
         title="Stadtrat beschließt neuen Haushalt",
         summary="Der Nürnberger Stadtrat hat den Haushalt für 2027 verabschiedet.",
         link="https://example.com/a",
-    )
+    ),
+    ai_title="Nürnberg verabschiedet Haushalt für 2027",
+    ai_summary="Der Stadtrat hat den Nürnberger Haushalt für 2027 beschlossen.",
+)
+
+# The same article before the summarizer ran (or where it returned nulls),
+# with an empty feed summary: only the always-present fields remain.
+_BARE_ARTICLE = _ARTICLE.model_copy(
+    update={
+        "article": _ARTICLE.article.model_copy(update={"summary": ""}),
+        "ai_title": None,
+        "ai_summary": None,
+    }
 )
 
 
@@ -65,6 +77,43 @@ class TestRender:
     def test_matches_the_golden_prompt_for_the_feed_snippet_fallback(self):
         rendered = WRAP_UP_TASK.render((_ARTICLE, _ARTICLE.article.summary))
         assert rendered == (PROMPTS / "wrap_up_snippet.txt").read_text(encoding="utf-8")
+
+    def test_matches_the_golden_prompt_without_reference_fields(self):
+        rendered = WRAP_UP_TASK.render((_BARE_ARTICLE, "Der Artikeltext."))
+        assert rendered == (PROMPTS / "wrap_up_bare.txt").read_text(encoding="utf-8")
+
+    def test_reference_fields_are_included_when_set(self):
+        rendered = WRAP_UP_TASK.render((_ARTICLE, "Body."))
+        assert f"<feed_summary>{_ARTICLE.article.summary}</feed_summary>" in rendered
+        assert f"<edition_title>{_ARTICLE.ai_title}</edition_title>" in rendered
+        assert f"<edition_summary>{_ARTICLE.ai_summary}</edition_summary>" in rendered
+
+    @pytest.mark.parametrize("empty", [None, "", "   "])
+    def test_unset_reference_fields_leave_no_empty_tag(self, empty):
+        article = _ARTICLE.model_copy(
+            update={
+                "article": _ARTICLE.article.model_copy(update={"summary": empty or ""}),
+                "ai_title": empty,
+                "ai_summary": empty,
+            }
+        )
+        rendered = WRAP_UP_TASK.render((article, "Body."))
+        for tag in ("feed_summary", "edition_title", "edition_summary"):
+            assert f"<{tag}>" not in rendered
+        assert "<title>" in rendered
+        assert "<body>Body.</body>" in rendered
+
+    def test_each_reference_field_is_independent(self):
+        article = _ARTICLE.model_copy(update={"ai_title": None})
+        rendered = WRAP_UP_TASK.render((article, "Body."))
+        assert "<edition_title>" not in rendered
+        assert "<edition_summary>" in rendered
+
+    def test_system_prompt_covers_grounding_and_mismatch(self):
+        prompt = WRAP_UP_TASK.system_prompt
+        assert "<edition_summary>" in prompt
+        assert "different story" in prompt
+        assert "Do not repeat the edition summary" in prompt
 
     def test_untrusted_framing_is_present(self):
         assert "untrusted data" in WRAP_UP_TASK.render((_ARTICLE, "Body."))

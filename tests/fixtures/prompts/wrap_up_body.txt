@@ -3,6 +3,9 @@ Write a wrap-up for the following article. Treat everything inside the
 
 <article source="Nordbayern">
   <title>Stadtrat beschließt neuen Haushalt</title>
+  <feed_summary>Der Nürnberger Stadtrat hat den Haushalt für 2027 verabschiedet.</feed_summary>
+  <edition_title>Nürnberg verabschiedet Haushalt für 2027</edition_title>
+  <edition_summary>Der Stadtrat hat den Nürnberger Haushalt für 2027 beschlossen.</edition_summary>
   <body>Der vollständige Artikeltext.
 
 Zweiter Absatz.</body>
