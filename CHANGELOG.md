@@ -3,6 +3,24 @@
 Changes to frankenbote.
 
 ---
+## [0.6.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.5.0..v0.6.0) - 2026-09-26
+
+### Bug Fixes
+
+- **(renderer)** Update background styling for articles without images - ([765fba7](http://192.168.2.134:3000/intipunku/frankenbote/commit/765fba7118c03abb0d836b23558dbf6f144d294e)) - kura_andi
+
+### Features
+
+- **(renderer)** Remove font-display variable from cover theme styles - ([1a0b1de](http://192.168.2.134:3000/intipunku/frankenbote/commit/1a0b1de73ef4edd5d8387249d6086b73c617134d)) - kura_andi
+- **(renderer)** Revamp "Modern" theme layout for continuous image strip and improved article presentation - ([1893867](http://192.168.2.134:3000/intipunku/frankenbote/commit/18938671849e285f8a675ef11322e57efd57b978)) - kura_andi
+- **(renderer)** Update theme switcher placement and styling for better alignment - ([dcf0756](http://192.168.2.134:3000/intipunku/frankenbote/commit/dcf0756aa44421f12f22d36bf2cee704817a90d2)) - kura_andi
+- **(renderer)** Add switchable image-led "Modern" theme - ([aaf3b01](http://192.168.2.134:3000/intipunku/frankenbote/commit/aaf3b0182abe0ebff0800c8a0f9f9d98a3eea001)) - kura_andi
+- **(renderer)** Add styled error pages for the published site - ([3da2b35](http://192.168.2.134:3000/intipunku/frankenbote/commit/3da2b359b8c172ada20726ea64ef0b71e8677547)) - kura_andi
+- **(scraper)** Add tests for scraper functionality - ([b9bc893](http://192.168.2.134:3000/intipunku/frankenbote/commit/b9bc893fd70f402a40b6c9f0990ffc8f7b92565f)) - kura_andi
+- **(summarizer)** Enhance summarization to include AI-generated headlines alongside summaries - ([329be34](http://192.168.2.134:3000/intipunku/frankenbote/commit/329be34cb996bf4be9f5b637e0c0bb5d0be76232)) - kura_andi
+- **(wrap-up)** Add context for wrap-up task with reference fields and update tests - ([5b76c1c](http://192.168.2.134:3000/intipunku/frankenbote/commit/5b76c1c01e204b01857f808ad4573393502789b4)) - kura_andi
+
+---
 ## [0.5.0](http://192.168.2.134:3000/intipunku/frankenbote/compare/v0.4.0..v0.5.0) - 2026-09-16
 
 ### Changed
