@@ -59,6 +59,13 @@
         {# article--noimage lets a theme that is built around the image (cover)
            draw a stand-in block; the classic theme ignores it. #}
         <article class="article{% if not item.article.image_url %} article--noimage{% endif %}">
+            {# A second copy of the image, as a direct child of the article:
+               the cover theme pins it full-screen for the whole article,
+               which a sticky element inside <summary> cannot do. Hidden in
+               the classic theme; lazy, so it is not fetched there. #}
+            {% if item.article.image_url %}
+            <img class="article__backdrop" src="{{ item.article.image_url }}" alt="" loading="lazy">
+            {% endif %}
             {% if item.wrap_up %}
             {# Image, headline and teaser are all inside <summary>, so any of
                them toggles the wrap-up. The source link lives in the meta

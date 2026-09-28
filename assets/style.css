@@ -161,6 +161,11 @@ main {
   border-bottom: 1px solid var(--color-rule);
 }
 
+/* Full-screen copy of the image for the cover theme (theme-cover.css). */
+.article__backdrop {
+  display: none;
+}
+
 /* Lead article: full-width hero above the headline. */
 .article-image--hero {
   width: 100%;

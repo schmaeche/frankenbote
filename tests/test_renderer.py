@@ -761,6 +761,25 @@ class TestThemes:
         assert '<article class="article">' in html
         assert "article--noimage" not in html
 
+    def test_article_with_image_carries_a_backdrop_copy_for_the_cover_theme(self):
+        lead = make_curated(
+            is_lead=True,
+            article=make_article(image_url="https://img.example.com/full.jpg"),
+        )
+        html = _render_real_template(_edition_with_articles([lead]))
+        start = html.index('<article class="article">')
+        # First child of the article, so the cover theme can pin it for the
+        # article's whole height — not nested in <summary>.
+        assert html[start + len('<article class="article">'):].lstrip().startswith(
+            '<img class="article__backdrop" src="https://img.example.com/full.jpg" '
+            'alt="" loading="lazy">'
+        )
+
+    def test_imageless_article_has_no_backdrop(self):
+        lead = make_curated(is_lead=True)
+        html = _render_real_template(_edition_with_articles([lead]))
+        assert "article__backdrop" not in html
+
     def test_error_pages_have_no_theme_switcher(self):
         # Error pages must work without CSS and use root-absolute paths; they
         # stay in the default look on purpose.
