@@ -23,12 +23,14 @@ body = """
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | striptags | trim | upper_first }}
-    {% for commit in commits
-    | filter(attribute="scope")
-    | sort(attribute="scope") %}
-        - **({{commit.scope}})**{% if commit.breaking %} [**breaking**]{% endif %} \
-            {{ commit.message | split(pat="\n") | first | upper_first | trim }} - ([{{ commit.id | truncate(length=7, end="") }}]($REPO/commit/{{ commit.id }})) - {{ commit.author.name }}
-    {%- endfor -%}
+    {% set scoped = commits | filter(attribute="scope") | sort(attribute="scope") %}
+    {% for scope, scope_commits in scoped | group_by(attribute="scope") %}
+    #### {{ scope | striptags | trim | upper_first }}
+        {%- for commit in scope_commits %}
+            - {% if commit.breaking %} [**breaking**]{% endif %} \
+                {{ commit.message | split(pat="\n") | first | upper_first | trim }} - ([{{ commit.id | truncate(length=7, end="") }}]($REPO/commit/{{ commit.id }})) - {{ commit.author.name }}
+        {%- endfor -%}
+    {% endfor%}
     {% raw %}\n{% endraw %}\
     {%- for commit in commits %}
         {%- if commit.scope -%}
